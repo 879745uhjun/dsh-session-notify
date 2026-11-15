@@ -1,0 +1,11 @@
+# The watch list, its browser routes, and the finished-turn card all live in
+# this one Host row. Turn the plugin off by disabling the row in Plugins.
+- insert:
+    - id: dsh-session-notify
+      name: dsh-session-notify
+      config:
+        enabled: true
+        # Milliseconds one card stays on screen before it closes itself.
+        durationMs: 8000
+        # true: keep the card until it is clicked.
+        sticky: false

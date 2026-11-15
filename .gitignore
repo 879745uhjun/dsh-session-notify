@@ -1,0 +1,10 @@
+# Dependencies, logs, and local scratch files are never part of the bundle.
+node_modules/
+*.log
+
+# Windows and editor noise.
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

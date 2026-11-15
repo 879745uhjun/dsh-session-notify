@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session finish notifications",
+    "description": "Right-click a session in the sidebar and choose \"Notify when this session finishes\"; every finished turn then raises a card in the bottom-right corner of your screen. The bell on that session's row turns it off, and the same menu can show a sample card. Requires the Windows desktop app."
+  }
+}
