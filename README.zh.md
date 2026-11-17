@@ -37,6 +37,44 @@ Host 只监听被盯会话日志里**已经提交**的 `turn/end` 事件，所�
 - 跟随 Windows 的浅色/深色应用主题。
 - 同时最多显示 4 张；第 5 张出现时会提前关掉最上面那张——**不会丢通知**，那张已经显示过了，这样做只是保证最新的一张一定看得见。
 
+## 其他插件如何调用
+
+别的插件可以替用户关注一个会话，走的是和右键菜单**完全相同的写入函数**（同一个
+`session-notify.json`、同一条 SSE 流，事件名仍是 `watched`），所以不会出现两套状态。
+
+```bash
+# 关注
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/watch" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"session-xxxx","on":true}'
+# → {"ok":true,"sessionId":"session-xxxx","watching":true}
+
+# 取消关注
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/watch" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"session-xxxx","on":false}'
+# → {"ok":true,"sessionId":"session-xxxx","watching":false}
+
+# 校验当前关注列表
+curl -s "http://127.0.0.1:$PORT/session-notify"
+# → {"ok":true,"watched":{"session-xxxx":{"title":"…","locale":"zh",…}}}
+```
+
+| 情况 | 行为 |
+| --- | --- |
+| `on` 不是布尔、`sessionId` 缺失、JSON 坏掉 | `400 {"ok":false,"error":…}`，不写入 |
+| 跨源请求（带别的 `Origin`） | `403`，不写入 |
+| 非 `POST` | `405` |
+| **本 Host 没有这个会话** | `200 {"ok":true,"watching":false,"reason":"unknown-session"}`，**不写入** |
+| 重复 `on:true` / 重复 `on:false` | 结果不变，**不重复落盘、不重复推送** |
+
+几点调用须知：
+
+- `sessionId` 必须是当前 Host 里**有活会话**的 id（本插件用 `ctx.sessions.get()` 判断）；已经关闭、从未打开过的会话会被判为 unknown。
+- 端口用 DSH 的 Web 地址（桌面版每次启动可能变化），同源请求不需要额外鉴权。
+- 不用自己传会话标题：页面打开时浏览器半会自动回填（`restate`）。
+- 关注只影响「结束时弹卡」；卡片外观、菜单开关都不变，用户仍可在菜单里自己关掉。
+
 ## 配置
 
 `cordis.patch.yml` 里这一行带着可调项：

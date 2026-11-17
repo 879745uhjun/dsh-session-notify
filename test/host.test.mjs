@@ -15,12 +15,17 @@ import { apply, name } from '../index.js'
 /** A Host context stub that captures the web routes and the event listeners. */
 function createHost(home, config, spawned, options = {}) {
   const advertise = options.advertise ?? 'http://127.0.0.1:49823'
+  // null means "no session service in this composition", so every id is accepted.
+  const knownSessions = options.knownSessions ?? null
   const routes = new Map()
   const listeners = new Map()
   const ctx = {
     get: (key) => {
       if (key === 'dshHomePath') return (suffix) => join(home.dir, suffix)
       if (key === 'webApp' && advertise !== '') return { getAdvertisedUrl: () => advertise }
+      if (key === 'sessions' && knownSessions !== null) {
+        return { get: (id) => (knownSessions.includes(id) ? { id } : undefined) }
+      }
       return undefined
     },
     effect: (factory) => {
@@ -124,6 +129,7 @@ test('registers the watch route, the event stream, the sample route, and the ope
     '/session-notify/events',
     '/session-notify/open',
     '/session-notify/test',
+    '/session-notify/watch',
   ])
 })
 
@@ -352,4 +358,111 @@ test('a composition without a page keeps the card dismiss-only', async (t) => {
   assert.equal(spawned[0].args.includes('-OpenUrl'), false)
   const value = (flag) => spawned[0].args[spawned[0].args.indexOf(flag) + 1]
   assert.match(value('-Meta'), /点击关闭$/)
+})
+
+/** Attach one fake SSE client and wait for its first snapshot frame. */
+async function attachStream(host) {
+  const stream = createResponse()
+  await host.routes.get('/session-notify/events')(createRequest('GET'), stream)
+  for (let attempt = 0; attempt < 40 && !stream.body.includes('event: watched'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  assert.match(stream.body, /event: watched/, 'the stream sent its opening snapshot')
+  return stream
+}
+
+/** How many change frames of one kind the stream carried. */
+function frameCount(stream, kind) {
+  return (stream.body.match(new RegExp('"kind":"' + kind + '"', 'g')) ?? []).length
+}
+
+test('another plugin can watch and unwatch a session through the watch route', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a'] })
+  const stream = await attachStream(host)
+  const watch = host.routes.get('/session-notify/watch')
+
+  const on = await call(watch, 'POST', { sessionId: 'session-a', on: true })
+  assert.equal(on.status, 200)
+  assert.deepEqual(on.json, { ok: true, sessionId: 'session-a', watching: true })
+
+  const listed = await call(host.routes.get('/session-notify'), 'GET')
+  assert.deepEqual(Object.keys(listed.json.watched), ['session-a'], 'GET shows the watch')
+  assert.equal(frameCount(stream, 'watch'), 1, 'the change reached every open window')
+
+  const off = await call(watch, 'POST', { sessionId: 'session-a', on: false })
+  assert.deepEqual(off.json, { ok: true, sessionId: 'session-a', watching: false })
+  const afterOff = await call(host.routes.get('/session-notify'), 'GET')
+  assert.deepEqual(afterOff.json.watched, {})
+  assert.equal(frameCount(stream, 'unwatch'), 1)
+})
+
+test('repeating the same watch request writes and publishes once', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a'] })
+  const stream = await attachStream(host)
+  const watch = host.routes.get('/session-notify/watch')
+
+  const first = await call(watch, 'POST', { sessionId: 'session-a', on: true })
+  const second = await call(watch, 'POST', { sessionId: 'session-a', on: true })
+  assert.equal(first.json.watching, true)
+  assert.deepEqual(second.json, first.json, 'the answer is stable')
+  assert.equal(frameCount(stream, 'watch'), 1, 'a repeated request publishes nothing new')
+
+  await call(watch, 'POST', { sessionId: 'session-a', on: false })
+  await call(watch, 'POST', { sessionId: 'session-a', on: false })
+  assert.equal(frameCount(stream, 'unwatch'), 1, 'unwatching twice publishes nothing new')
+})
+
+test('the watch route uses the same watch file as the sidebar menu', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a', 'session-b'] })
+
+  await call(host.routes.get('/session-notify'), 'POST', { action: 'watch', sessionId: 'session-a', title: '菜单会话', locale: 'zh' })
+  await call(host.routes.get('/session-notify/watch'), 'POST', { sessionId: 'session-b', on: true })
+
+  const stored = JSON.parse(readFileSync(home.file, 'utf8'))
+  assert.deepEqual(Object.keys(stored.watched).sort(), ['session-a', 'session-b'])
+  assert.equal(stored.watched['session-a'].title, '菜单会话', 'the menu keeps its write path')
+
+  // The menu can still turn off a watch a caller created.
+  const removed = await call(host.routes.get('/session-notify'), 'POST', { action: 'unwatch', sessionId: 'session-b' })
+  assert.equal(removed.json.watching, false)
+})
+
+test('an unknown session id is answered, not written', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a'] })
+  const watch = host.routes.get('/session-notify/watch')
+
+  const unknown = await call(watch, 'POST', { sessionId: 'session-ghost', on: true })
+  assert.equal(unknown.status, 200)
+  assert.deepEqual(unknown.json, { ok: true, sessionId: 'session-ghost', watching: false, reason: 'unknown-session' })
+
+  const listed = await call(host.routes.get('/session-notify'), 'GET')
+  assert.deepEqual(listed.json.watched, {}, 'nothing was stored for an unknown id')
+})
+
+test('the watch route validates its input and its caller', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a'] })
+  const watch = host.routes.get('/session-notify/watch')
+
+  const crossSite = await call(watch, 'POST', { sessionId: 'session-a', on: true }, { origin: 'http://evil.example' })
+  assert.equal(crossSite.status, 403)
+
+  const noOn = await call(watch, 'POST', { sessionId: 'session-a' })
+  assert.equal(noOn.status, 400)
+
+  const badOn = await call(watch, 'POST', { sessionId: 'session-a', on: 'yes' })
+  assert.equal(badOn.status, 400)
+
+  const noId = await call(watch, 'POST', { on: true })
+  assert.equal(noId.status, 400)
+
+  const wrongMethod = await call(watch, 'GET')
+  assert.equal(wrongMethod.status, 405)
+
+  const listed = await call(host.routes.get('/session-notify'), 'GET')
+  assert.deepEqual(listed.json.watched, {}, 'a rejected request changes nothing')
 })

@@ -51,6 +51,46 @@ for a stop and red for an error, while the message stays *此对话已结束*.
   **no notification is lost**, that card had already been shown, and the newest
   one stays visible instead of hiding behind it.
 
+## For other plugins
+
+A plugin can watch a session on the user's behalf through the same write path the
+sidebar menu uses — one `session-notify.json`, one SSE stream, event name
+`watched` — so there is never a second source of truth.
+
+```bash
+# watch
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/watch" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"session-xxxx","on":true}'
+# → {"ok":true,"sessionId":"session-xxxx","watching":true}
+
+# unwatch
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/watch" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"session-xxxx","on":false}'
+# → {"ok":true,"sessionId":"session-xxxx","watching":false}
+
+# read the list back
+curl -s "http://127.0.0.1:$PORT/session-notify"
+# → {"ok":true,"watched":{"session-xxxx":{"title":"…","locale":"zh",…}}}
+```
+
+| Case | Behaviour |
+| --- | --- |
+| `on` is not a boolean, `sessionId` missing, bad JSON | `400 {"ok":false,"error":…}`, nothing written |
+| Cross-origin caller | `403`, nothing written |
+| Not `POST` | `405` |
+| **No live session for that id on this Host** | `200 {"ok":true,"watching":false,"reason":"unknown-session"}`, nothing written |
+| Repeated `on:true` / `on:false` | unchanged result, no second write, no second event |
+
+Caller notes:
+
+- `sessionId` must belong to a session that is **live on this Host** (checked with
+  `ctx.sessions.get()`); a closed session or one never opened answers `unknown-session`.
+- `$PORT` is DSH's web address and can change on every desktop launch.
+- The caller need not send a title: the browser half fills it in when a page is open.
+- Watching only adds the finish card; the menu toggle still belongs to the user.
+
 ## Configuration
 
 The row in `cordis.patch.yml` carries the tunables:

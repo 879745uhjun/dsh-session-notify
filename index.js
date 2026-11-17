@@ -37,6 +37,8 @@ const EVENTS_ROUTE = '/session-notify/events'
 const TEST_ROUTE = '/session-notify/test'
 /** Route the card itself calls when it is clicked, to open its conversation. */
 const OPEN_ROUTE = '/session-notify/open'
+/** Route other plugins call to watch or unwatch one session programmatically. */
+const WATCH_ROUTE = '/session-notify/watch'
 /** SSE heartbeat interval; keeps idle proxies and sockets alive. */
 const SSE_HEARTBEAT_MS = 20_000
 /** Watch-file format version. */
@@ -619,6 +621,63 @@ function createOpenHandler(events, log) {
 }
 
 /**
+ * The programmatic watch route other plugins call.
+ *
+ * Contract: `POST { sessionId, on: boolean }` → `200 { ok, sessionId, watching }`.
+ * It writes through the same store functions the sidebar menu uses, so there is
+ * one writer, one durable file, and one SSE stream. Repeating the same request
+ * changes nothing and publishes nothing. An id this Host has no live session
+ * for answers `200 { ok, watching: false, reason: 'unknown-session' }` instead
+ * of writing a watch that could never fire.
+ */
+function createWatchHandler(store, log, isKnownSession) {
+  return async function handleSessionNotifyWatch(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        response.writeHead(405, { allow: 'POST', 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false, error: 'method not allowed' }))
+        return
+      }
+      let payload
+      try {
+        payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message === 'request body is too large' ? error.message : 'invalid JSON body' })
+        return
+      }
+      const session = readSessionId(payload)
+      if (!session.ok) {
+        sendJson(response, 400, { ok: false, error: session.error })
+        return
+      }
+      if (typeof payload?.on !== 'boolean') {
+        sendJson(response, 400, { ok: false, error: 'on must be a boolean' })
+        return
+      }
+      if (!isKnownSession(session.sessionId)) {
+        sendJson(response, 200, { ok: true, sessionId: session.sessionId, watching: false, reason: 'unknown-session' })
+        return
+      }
+      if (payload.on) await store.watch(session.sessionId, {})
+      else await store.unwatch(session.sessionId)
+      const watching = store.entryOf(session.sessionId) !== undefined
+      sendJson(response, 200, { ok: true, sessionId: session.sessionId, watching })
+    } catch (error) {
+      log('could not change a watch for another plugin', error)
+      try {
+        sendJson(response, 500, { ok: false, error: 'internal error' })
+      } catch {
+        response.destroy()
+      }
+    }
+  }
+}
+
+/**
  * The web origin the card posts back to, or '' when this composition serves no
  * page. Read at card time so a changed port is picked up.
  */
@@ -705,6 +764,22 @@ export function apply(ctx, config, seams = {}) {
 
   ctx.effect(() => () => events.close(), 'session-notify: event stream')
 
+  /** Whether this Host currently has a live session for that id. */
+  const isKnownSession = (sessionId) => {
+    let sessions
+    try {
+      sessions = ctx.get('sessions')
+    } catch {
+      return true
+    }
+    if (sessions === undefined || sessions === null || typeof sessions.get !== 'function') return true
+    try {
+      return sessions.get(sessionId) !== undefined
+    } catch {
+      return true
+    }
+  }
+
   // The only trigger. A durable turn close means the assistant output for that
   // turn is complete, so the card never appears mid-stream.
   ctx.effect(() => ctx.on('session/event', async (session, event) => {
@@ -745,7 +820,9 @@ export function apply(ctx, config, seams = {}) {
       const removeEvents = scope.webServer.register({ kind: 'exact', path: EVENTS_ROUTE, handler: events.attach })
       const removeTest = scope.webServer.register({ kind: 'exact', path: TEST_ROUTE, handler: createTestHandler(options, cards, log, resolveOpenUrl) })
       const removeOpen = scope.webServer.register({ kind: 'exact', path: OPEN_ROUTE, handler: createOpenHandler(events, log) })
+      const removeWatch = scope.webServer.register({ kind: 'exact', path: WATCH_ROUTE, handler: createWatchHandler(store, log, isKnownSession) })
       return () => {
+        removeWatch()
         removeOpen()
         removeTest()
         removeEvents()
