@@ -7,10 +7,14 @@ and let the desktop tell you when one is done.
 ## Use it
 
 1. In the sidebar, right-click the session you want to follow.
-2. Choose **结束时提醒** (English UI: *Notify when this session finishes*). A small
-   bell appears on that session's row, and the menu entry now reads
-   **已开启结束时提醒** with a green **开**.
-3. Leave the session alone. When a turn closes — the assistant's output for that
+2. The menu carries one row, **会话提醒设置 ›** (*Session notifications*). Point at
+   it to open its submenu, which holds both actions:
+   - **结束时提醒** — start following this session; a small bell appears on its row;
+   - **试弹一次提醒** — show one sample card with this session's title, so you can
+     check the look, the placement, and the click-to-open jump right away.
+3. While the watch is on, the parent row reads **会话提醒设置 · 开** and the child
+   reads **已开启结束时提醒**, so the state is visible at a glance.
+4. Leave the session alone. When a turn closes — the assistant's output for that
    turn is complete and committed — a card appears in the bottom-right corner of
    the primary screen:
 
@@ -21,12 +25,8 @@ and let the desktop tell you when one is done.
    **Click the card** and it closes while DSH jumps to that conversation — the
    same session switch the sidebar does.
 
-4. Turn it off by right-clicking that session again and choosing the same entry,
-   or by clicking the bell on the row while it is visible.
-
-**试弹一次提醒** in the same menu shows the card once with that session's title, so
-you can check the look, the placement, and the click-to-open jump without
-waiting for a turn.
+5. Turn it off through the same submenu, or by clicking the bell on the row while
+   it is visible.
 
 Watching more than one session is fine: each finished turn gets its own card,
 and cards stack upwards instead of covering each other.
@@ -47,7 +47,8 @@ for a stop and red for an error, while the message stays *此对话已结束*.
 - A click also posts the session id back to the Host, which asks the page to
   open that conversation; the card disappears first so the jump feels instant.
 - Follows the Windows light/dark app theme.
-- Several cards at once stack upwards.
+- Several cards at once stack upwards, at most four; a fifth retires the top
+  card, so the newest notification is always the one you see.
 
 ## Configuration
 

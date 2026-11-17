@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-notify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A bottom-right desktop card the moment a watched conversation finishes its turn: watch several sessions and get told when one is done, without keeping the window in front.",
   "type": "module",
   "main": "index.js",
@@ -36,7 +36,7 @@
   },
   "scripts": {
     "test": "node test/host.test.mjs",
-    "test:dom": "node test/client.dom.test.mjs"
+    "test:dom": "node test/client.logic.test.mjs"
   },
   "license": "MIT",
   "author": "879745uhjun",

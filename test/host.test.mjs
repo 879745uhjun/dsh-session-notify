@@ -228,6 +228,28 @@ test('an unwatched session, a non-turn event, and a second trigger stay quiet', 
   assert.equal(spawned.length, 1)
 })
 
+test('every turn outcome keeps the same sentence and only moves the accent', async (t) => {
+  const home = createHome(t)
+  const spawned = []
+  const host = createHost(home, {}, spawned)
+  const route = host.routes.get('/session-notify')
+  for (const id of ['done-session', 'aborted-session', 'error-session']) {
+    await call(route, 'POST', { action: 'watch', sessionId: id, title: id, locale: 'zh' })
+  }
+
+  await fireTurnEnd(host, 'done-session', 'completed')
+  await fireTurnEnd(host, 'aborted-session', 'aborted')
+  await fireTurnEnd(host, 'error-session', 'error')
+  assert.equal(spawned.length, 3)
+
+  const value = (args, flag) => args[args.indexOf(flag) + 1]
+  assert.deepEqual(spawned.map((entry) => value(entry.args, '-Body')), ['此对话已结束', '此对话已结束', '此对话已结束'])
+  assert.deepEqual(spawned.map((entry) => value(entry.args, '-Accent')), ['done', 'warn', 'error'])
+  assert.match(value(spawned[0].args, '-Meta'), /^已完成 · /)
+  assert.match(value(spawned[1].args, '-Meta'), /^已中断 · /)
+  assert.match(value(spawned[2].args, '-Meta'), /^出错 · /)
+})
+
 test('the turn outcome picks the accent and the language', async (t) => {
   const home = createHome(t)
   const spawned = []
