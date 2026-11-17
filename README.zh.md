@@ -78,3 +78,11 @@ node --test test/host.test.mjs
 node --test test/client.logic.test.mjs
 powershell -NoProfile -ExecutionPolicy Bypass -File demo\preview.ps1
 ```
+
+## 从 GitHub 安装
+
+```sh
+dsh plugin --profile desktop add github:879745uhjun/dsh-session-notify
+```
+
+装好后刷新 Web 页面。

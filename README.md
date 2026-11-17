@@ -97,3 +97,11 @@ node --test test/host.test.mjs
 node --test test/client.logic.test.mjs
 powershell -NoProfile -ExecutionPolicy Bypass -File demo\preview.ps1
 ```
+
+## Install from GitHub
+
+```sh
+dsh plugin --profile desktop add github:879745uhjun/dsh-session-notify
+```
+
+Reload the Web UI page after installing.
