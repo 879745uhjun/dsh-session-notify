@@ -47,8 +47,9 @@ for a stop and red for an error, while the message stays *此对话已结束*.
 - A click also posts the session id back to the Host, which asks the page to
   open that conversation; the card disappears first so the jump feels instant.
 - Follows the Windows light/dark app theme.
-- Several cards at once stack upwards, at most four; a fifth retires the top
-  card, so the newest notification is always the one you see.
+- At most four cards sit on screen at once; a fifth closes the top one early —
+  **no notification is lost**, that card had already been shown, and the newest
+  one stays visible instead of hiding behind it.
 
 ## Configuration
 
