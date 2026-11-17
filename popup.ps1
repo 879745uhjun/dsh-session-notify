@@ -154,8 +154,12 @@ $palette = $themes[$Theme]
 
 # --- slot allocation -------------------------------------------------------
 # Cards stack upwards from the bottom-right corner. Each live card owns one
-# lock file named after its process id, so a crashed card leaves a lock that
-# the next card prunes.
+# lock file named after its process id and records the position it took, so a
+# crashed card leaves a lock that the next card prunes. There are $MAX_CARDS
+# positions: a card takes the lowest free one, and when all four are taken it
+# retires whoever holds the top position instead of landing on top of it --
+# two cards sharing one rectangle hides one notification behind the other.
+$MAX_CARDS = 4
 if ([string]::IsNullOrWhiteSpace($SlotsDir)) {
   $SlotsDir = Join-Path $env:TEMP 'dsh-session-notify\cards'
 }
@@ -165,21 +169,34 @@ try {
   if (-not (Test-Path -LiteralPath $SlotsDir)) {
     New-Item -ItemType Directory -Force -Path $SlotsDir | Out-Null
   }
-  $live = @()
+  $entries = @()
   foreach ($file in (Get-ChildItem -LiteralPath $SlotsDir -Filter '*.lock' -ErrorAction SilentlyContinue)) {
     $owner = 0
     if ([int]::TryParse([System.IO.Path]::GetFileNameWithoutExtension($file.Name), [ref] $owner)) {
       $process = Get-Process -Id $owner -ErrorAction SilentlyContinue
       if ($null -ne $process -and $process.ProcessName -eq 'powershell') {
-        $live += $owner
+        $claimed = -1
+        $text = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+        if ($text -match 'slot=(\d+)') { $claimed = [int] $Matches[1] }
+        $entries += [pscustomobject]@{ pid = $owner; slot = $claimed }
         continue
       }
     }
     Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
   }
-  $slot = [Math]::Min($live.Count, 3)
+  $taken = @($entries | Where-Object { $_.slot -ge 0 } | ForEach-Object { $_.slot })
+  $target = 0
+  while ($target -lt $MAX_CARDS -and ($taken -contains $target)) { $target += 1 }
+  if ($target -ge $MAX_CARDS) {
+    $target = $MAX_CARDS - 1
+    foreach ($occupant in @($entries | Where-Object { $_.slot -eq $target })) {
+      Stop-Process -Id $occupant.pid -Force -ErrorAction SilentlyContinue
+      Write-Trace ('position ' + $target + ' was taken; retired pid=' + $occupant.pid)
+    }
+  }
+  $slot = $target
   $lockFile = Join-Path $SlotsDir ((Get-Process -Id $PID).Id.ToString() + '.lock')
-  Set-Content -LiteralPath $lockFile -Value (Get-Date).ToString('o') -Encoding ASCII
+  Set-Content -LiteralPath $lockFile -Value ('slot=' + $slot + "`n" + (Get-Date).ToString('o')) -Encoding ASCII
 } catch {
   $slot = 0
   $lockFile = $null
