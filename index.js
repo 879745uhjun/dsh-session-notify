@@ -39,6 +39,8 @@ const TEST_ROUTE = '/session-notify/test'
 const OPEN_ROUTE = '/session-notify/open'
 /** Route other plugins call to watch or unwatch one session programmatically. */
 const WATCH_ROUTE = '/session-notify/watch'
+/** Route the page uses to report the DSH theme the card must match. */
+const THEME_ROUTE = '/session-notify/theme'
 /** SSE heartbeat interval; keeps idle proxies and sockets alive. */
 const SSE_HEARTBEAT_MS = 20_000
 /** Watch-file format version. */
@@ -360,6 +362,9 @@ function createCards(options, log, spawnImpl = spawn) {
         '-DurationMs', String(card.durationMs),
       ]
       if (card.sticky) args.push('-Sticky')
+      // The page's own theme beats the Windows one: DSH can be dark while the
+      // OS is light. Without a report the script keeps reading the registry.
+      if (card.theme === 'dark' || card.theme === 'light') args.push('-Theme', card.theme)
       // Clicking the card closes it and asks this Host to open the session.
       // Without a target the card still closes, so a demo run stays harmless.
       if (typeof card.openUrl === 'string' && card.openUrl.length > 0
@@ -621,6 +626,51 @@ function createOpenHandler(events, log) {
 }
 
 /**
+ * The page reporting which DSH theme the card must match.
+ *
+ * Rule 5 of the theme agreement: a window drawn outside the page must be told
+ * the theme explicitly, because DSH can be dark while Windows is light. The
+ * value lives in memory only; `auto` stays the fallback for the case where no
+ * page ever reports.
+ */
+function createThemeHandler(onTheme, log) {
+  return async function handleSessionNotifyTheme(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        response.writeHead(405, { allow: 'POST', 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false, error: 'method not allowed' }))
+        return
+      }
+      let payload
+      try {
+        payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      } catch {
+        sendJson(response, 400, { ok: false, error: 'invalid JSON body' })
+        return
+      }
+      const theme = payload?.theme
+      if (theme !== 'dark' && theme !== 'light') {
+        sendJson(response, 400, { ok: false, error: 'theme must be "dark" or "light"' })
+        return
+      }
+      onTheme(theme)
+      sendJson(response, 200, { ok: true, theme })
+    } catch (error) {
+      log('could not record the page theme', error)
+      try {
+        sendJson(response, 500, { ok: false, error: 'internal error' })
+      } catch {
+        response.destroy()
+      }
+    }
+  }
+}
+
+/**
  * The programmatic watch route other plugins call.
  *
  * Contract: `POST { sessionId, on: boolean }` → `200 { ok, sessionId, watching }`.
@@ -693,7 +743,7 @@ function openBaseUrl(ctx) {
 }
 
 /** The install-verification route: show one sample card in the caller's language. */
-function createTestHandler(options, cards, log, resolveOpenUrl) {
+function createTestHandler(options, cards, log, resolveOpenUrl, resolveTheme) {
   return async function handleSessionNotifyTest(request, response) {
     try {
       if (!isAcceptableOrigin(request)) {
@@ -726,6 +776,7 @@ function createTestHandler(options, cards, log, resolveOpenUrl) {
         sticky: options.sticky,
         openUrl,
         sessionId,
+        theme: resolveTheme(),
       })
       sendJson(response, 200, { ok: true, shown, body: copy.body })
     } catch (error) {
@@ -761,6 +812,11 @@ export function apply(ctx, config, seams = {}) {
     const base = openBaseUrl(ctx)
     return base === '' ? '' : base + OPEN_ROUTE
   }
+
+  // The DSH theme the page reported for this run ('dark' | 'light'), or '' until
+  // a page reports one; popup.ps1 then falls back to the Windows theme.
+  let webTheme = ''
+  const resolveTheme = () => webTheme
 
   ctx.effect(() => () => events.close(), 'session-notify: event stream')
 
@@ -806,6 +862,7 @@ export function apply(ctx, config, seams = {}) {
         sticky: options.sticky,
         openUrl,
         sessionId,
+        theme: resolveTheme(),
       })
     } catch (error) {
       log('could not notify a finished turn', error)
@@ -818,10 +875,12 @@ export function apply(ctx, config, seams = {}) {
     scope.effect(() => {
       const removeWatches = scope.webServer.register({ kind: 'exact', path: ROUTE, handler: createRouteHandler(store, log) })
       const removeEvents = scope.webServer.register({ kind: 'exact', path: EVENTS_ROUTE, handler: events.attach })
-      const removeTest = scope.webServer.register({ kind: 'exact', path: TEST_ROUTE, handler: createTestHandler(options, cards, log, resolveOpenUrl) })
+      const removeTest = scope.webServer.register({ kind: 'exact', path: TEST_ROUTE, handler: createTestHandler(options, cards, log, resolveOpenUrl, resolveTheme) })
       const removeOpen = scope.webServer.register({ kind: 'exact', path: OPEN_ROUTE, handler: createOpenHandler(events, log) })
       const removeWatch = scope.webServer.register({ kind: 'exact', path: WATCH_ROUTE, handler: createWatchHandler(store, log, isKnownSession) })
+      const removeTheme = scope.webServer.register({ kind: 'exact', path: THEME_ROUTE, handler: createThemeHandler((theme) => { webTheme = theme }, log) })
       return () => {
+        removeTheme()
         removeWatch()
         removeOpen()
         removeTest()

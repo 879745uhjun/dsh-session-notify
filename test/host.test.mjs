@@ -129,6 +129,7 @@ test('registers the watch route, the event stream, the sample route, and the ope
     '/session-notify/events',
     '/session-notify/open',
     '/session-notify/test',
+    '/session-notify/theme',
     '/session-notify/watch',
   ])
 })
@@ -465,4 +466,43 @@ test('the watch route validates its input and its caller', async (t) => {
 
   const listed = await call(host.routes.get('/session-notify'), 'GET')
   assert.deepEqual(listed.json.watched, {}, 'a rejected request changes nothing')
+})
+
+test('the page theme decides the card colours, with auto as the fallback', async (t) => {
+  const home = createHome(t)
+  const spawned = []
+  const host = createHost(home, {}, spawned)
+  const watch = host.routes.get('/session-notify')
+  for (const id of ['auto-session', 'dark-session', 'light-session']) {
+    await call(watch, 'POST', { action: 'watch', sessionId: id, title: id, locale: 'zh' })
+  }
+  const value = (entry, flag) => entry.args[entry.args.indexOf(flag) + 1]
+
+  // No page has reported yet, so the script keeps following the OS theme.
+  await fireTurnEnd(host, 'auto-session')
+  assert.equal(spawned[0].args.includes('-Theme'), false, 'auto stays the fallback')
+
+  const theme = host.routes.get('/session-notify/theme')
+  assert.deepEqual((await call(theme, 'POST', { theme: 'dark' })).json, { ok: true, theme: 'dark' })
+  await fireTurnEnd(host, 'dark-session')
+  assert.equal(value(spawned[1], '-Theme'), 'dark')
+
+  assert.deepEqual((await call(theme, 'POST', { theme: 'light' })).json, { ok: true, theme: 'light' })
+  await fireTurnEnd(host, 'light-session')
+  assert.equal(value(spawned[2], '-Theme'), 'light')
+
+  // The sample card follows the same reported theme.
+  await call(host.routes.get('/session-notify/test'), 'POST', { locale: 'zh', title: '示例', sessionId: 'light-session' })
+  assert.equal(value(spawned[3], '-Theme'), 'light')
+})
+
+test('the theme route validates its caller and its value', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [])
+  const theme = host.routes.get('/session-notify/theme')
+
+  assert.equal((await call(theme, 'POST', { theme: 'sepia' })).status, 400)
+  assert.equal((await call(theme, 'POST', {})).status, 400)
+  assert.equal((await call(theme, 'POST', { theme: 'dark' }, { origin: 'http://evil.example' })).status, 403)
+  assert.equal((await call(theme, 'GET')).status, 405)
 })

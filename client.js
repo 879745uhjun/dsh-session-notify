@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
     const ENDPOINT = '/session-notify'
     const EVENTS = '/session-notify/events'
     const TEST_ENDPOINT = '/session-notify/test'
+    const THEME_ENDPOINT = '/session-notify/theme'
 
     /* ------------------------------------------------------------------ *
      * Dictionaries (English is the key-set source of truth)
@@ -260,6 +261,18 @@ window.__ModuleLoader__.load({
             /* the next catalog change retries it */
           }
         },
+        /** Tell the Host which DSH theme the card must match; failures stay silent. */
+        async reportTheme(theme) {
+          try {
+            await fetch(THEME_ENDPOINT, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ theme }),
+            })
+          } catch {
+            /* the next theme flip reports again */
+          }
+        },
         /** Ask the Host to show one sample card that still jumps to the session. */
         async preview(title, locale, sessionId) {
           try {
@@ -329,6 +342,21 @@ window.__ModuleLoader__.load({
       try {
         const snapshot = locale?.getSnapshot?.()
         return typeof snapshot?.active === 'string' ? snapshot.active : ''
+      } catch {
+        return ''
+      }
+    }
+
+    /**
+     * The theme this page paints: 'dark' while `body[data-ds-dark-theme]` is
+     * present, 'light' otherwise, '' when there is no body to read. Rule 5 of
+     * the theme agreement forbids guessing from the OS for that reason.
+     */
+    function documentTheme() {
+      try {
+        const body = document.body
+        if (body === null || body === undefined) return ''
+        return typeof body.hasAttribute === 'function' && body.hasAttribute('data-ds-dark-theme') ? 'dark' : 'light'
       } catch {
         return ''
       }
@@ -463,6 +491,21 @@ window.__ModuleLoader__.load({
           watchedStore.start()
           return () => watchedStore.stop()
         }, 'session-notify: watch sync')
+
+        // The card is an OS window, so it cannot read the page's theme: report
+        // it now and after every flip of `body[data-ds-dark-theme]`.
+        ctx.effect(() => {
+          const report = () => {
+            const theme = documentTheme()
+            if (theme !== '') void watchedStore.reportTheme(theme)
+          }
+          report()
+          const body = document.body
+          if (typeof MutationObserver !== 'function' || body === null || typeof body !== 'object') return undefined
+          const observer = new MutationObserver(report)
+          observer.observe(body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+          return () => observer.disconnect()
+        }, 'session-notify: theme report')
 
         // A clicked card closes itself and asks for its conversation; that is
         // the same navigation the sidebar rows use.

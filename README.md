@@ -46,7 +46,11 @@ for a stop and red for an error, while the message stays *此对话已结束*.
 - Slides in, closes itself after 8 s, or closes immediately when clicked.
 - A click also posts the session id back to the Host, which asks the page to
   open that conversation; the card disappears first so the jump feels instant.
-- Follows the Windows light/dark app theme.
+- Follows the **DSH theme**, not the OS one: the page reports
+  `body[data-ds-dark-theme]` to the Host, which passes `-Theme dark|light`
+  explicitly. `auto` (read the Windows app theme) stays only as the fallback for
+  a Host that no page ever reported to, so a dark DSH on a light Windows still
+  matches.
 - At most four cards sit on screen at once; a fifth closes the top one early —
   **no notification is lost**, that card had already been shown, and the newest
   one stays visible instead of hiding behind it.

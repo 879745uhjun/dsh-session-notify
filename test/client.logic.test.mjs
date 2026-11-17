@@ -21,8 +21,23 @@ import { test } from 'node:test'
  * -------------------------------------------------------------------------- */
 
 const styleElements = []
+/** Mutable page theme the bundle reads, plus the observers it installs. */
+const page = { dark: false, observers: [] }
+globalThis.MutationObserver = class {
+  constructor(callback) {
+    this.callback = callback
+    page.observers.push(this)
+  }
+
+  observe() {}
+
+  disconnect() {}
+}
 globalThis.document = {
   visibilityState: 'visible',
+  body: {
+    hasAttribute: (name) => (name === 'data-ds-dark-theme' ? page.dark : false),
+  },
   head: {
     appendChild(node) {
       styleElements.push(node)
@@ -174,6 +189,7 @@ async function mountHost(t, spawned) {
   const home = mkdtempSync(join(tmpdir(), 'session-notify-client-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const routes = new Map()
+  const requests = []
   const { apply } = await import('../index.js')
   apply({
     get: (key) => {
@@ -209,6 +225,13 @@ async function mountHost(t, spawned) {
     const path = new URL('http://host' + url).pathname
     const handler = routes.get(path)
     if (handler === undefined) throw new Error('no route for ' + path)
+    let body
+    try {
+      body = init.body === undefined ? undefined : JSON.parse(init.body)
+    } catch {
+      body = init.body
+    }
+    requests.push({ path, body })
     const response = createResponse()
     await handler(createRequest(init.method ?? 'GET', init.body), response)
     return {
@@ -217,7 +240,7 @@ async function mountHost(t, spawned) {
       json: async () => JSON.parse(response.body),
     }
   }
-  return { routes }
+  return { routes, requests }
 }
 
 /* -------------------------------------------------------------------------- *
@@ -462,8 +485,23 @@ test('a clicked card opens its conversation through the workspace', async (t) =>
   assert.deepEqual(client.opened, ['session-a'], 'a malformed frame changes nothing')
 })
 
-test('an English page keeps the menu and the Host card in English', async (t) => {
-  const spawned = []
+test('the page reports its DSH theme so the card can match it', async (t) => {
+  page.dark = false
+  page.observers.length = 0
+  const host = await mountHost(t, [])
+  await mountClient()
+  await settle()
+
+  const reported = () => host.requests.filter((entry) => entry.path === '/session-notify/theme').map((entry) => entry.body?.theme)
+  assert.deepEqual(reported(), ['light'], 'a light page reports light without asking the OS')
+
+  page.dark = true
+  for (const observer of page.observers) observer.callback([])
+  await settle()
+  assert.deepEqual(reported(), ['light', 'dark'], 'flipping data-ds-dark-theme reports dark')
+})
+
+test('an English page keeps the menu and the Host card in English', async (t) => {  const spawned = []
   await mountHost(t, spawned)
   const client = await mountClient()
   client.language.active = 'en'
