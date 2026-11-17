@@ -32,25 +32,29 @@ window.__ModuleLoader__.load({
      * ------------------------------------------------------------------ */
 
     const EN = {
+      'menu.group': 'Session notifications',
+      'menu.groupOn': 'Session notifications · on',
       'menu.watch': 'Notify when this session finishes',
       'menu.watching': 'Finish notification is on',
       'menu.preview': 'Show a sample notification',
-      'menu.meta.on': 'On',
-      'menu.meta.off': 'Off',
       'bell.watching': 'Finish notification is on — click to turn it off',
       'error.save': 'Could not change the finish notification',
       'error.preview': 'Could not show the sample notification',
+      'toggle.on': 'Notifications for this session turned on',
+      'toggle.off': 'Notifications for this session turned off',
     }
 
     const ZH = {
+      'menu.group': '会话提醒设置',
+      'menu.groupOn': '会话提醒设置 · 开',
       'menu.watch': '结束时提醒',
       'menu.watching': '已开启结束时提醒',
       'menu.preview': '试弹一次提醒',
-      'menu.meta.on': '开',
-      'menu.meta.off': '关',
       'bell.watching': '已开启结束时提醒，点击关闭',
       'error.save': '结束提醒设置失败',
       'error.preview': '示例提醒没有弹出',
+      'toggle.on': '已开启这个会话的结束提醒',
+      'toggle.off': '已关闭这个会话的结束提醒',
     }
 
     const LOCALES = { zh: ZH, en: EN, ja: EN, es: EN, fr: EN, de: EN, ru: EN, pt: EN }
@@ -67,18 +71,6 @@ window.__ModuleLoader__.load({
       '.sn-bell:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent)}',
       '.sn-bell:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
       '.sn-bell svg{width:12px;height:12px;display:block}',
-      '.sn-menu-item{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:6px 10px;',
-      'border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:18px;',
-      'text-align:left;border-radius:var(--dsw-radius-sm,6px);cursor:pointer}',
-      '.sn-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover)}',
-      '.sn-menu-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}',
-      '.sn-menu-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;',
-      'color:var(--dsw-alias-label-secondary)}',
-      '.sn-menu-item[data-watching=true] .sn-menu-icon{color:var(--dsw-alias-state-business-primary)}',
-      '.sn-menu-icon svg{width:14px;height:14px;display:block}',
-      '.sn-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.sn-menu-meta{flex:none;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}',
-      '.sn-menu-item[data-watching=true] .sn-menu-meta{color:var(--dsw-alias-state-business-primary)}',
     ].join('\n')
 
     /* ------------------------------------------------------------------ *
@@ -381,90 +373,71 @@ window.__ModuleLoader__.load({
     }
 
     /* ------------------------------------------------------------------ *
-     * Row menu entries
+     * Session menu contribution
      * ------------------------------------------------------------------ */
 
-    /** One row of a session's "…" menu. */
-    function MenuRow({ label, meta, watching, icon, onSelect }) {
-      return h('button', {
-        type: 'button',
-        role: 'menuitem',
-        className: 'sn-menu-item',
-        'data-watching': watching ? 'true' : undefined,
-        title: label,
-        onClick: onSelect,
-      },
-        h('span', { className: 'sn-menu-icon' }, icon),
-        h('span', { className: 'sn-menu-label' }, label),
-        meta === '' ? null : h('span', { className: 'sn-menu-meta' }, meta))
+    /** The sample-card glyph, drawn at the shared icon size. */
+    function DownloadGlyph() {
+      return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': 'true' },
+        h('path', {
+          d: 'M8 3.1v6.4M5.2 6.6 8 9.4l2.8-2.8',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M3.6 11.6v1.1h8.8v-1.1',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+        }))
     }
 
-    /** The menu's watch toggle. */
-    function SessionNotifyWatchItem({ ctx, sessionId, useMenuOpenState }) {
-      const locale = ctx.locale ?? readService(ctx, 'locale')
-      useLocaleRevision(locale)
-      const t = locale.bind(NS)
-      const state = useWatchedState()
-      const useMenu = typeof useMenuOpenState === 'function' ? useMenuOpenState : () => [false, () => {}]
-      const menu = useMenu()
-      const setMenuOpen = Array.isArray(menu) ? menu[1] : () => {}
-      if (sessionId === undefined) return null
-      const watching = state.watched[sessionId] !== undefined
-      const label = watching ? t('menu.watching') : t('menu.watch')
-      return h(MenuRow, {
-        label,
-        meta: watching ? t('menu.meta.on') : t('menu.meta.off'),
-        watching,
-        icon: h(BellGlyph, { filled: watching }),
-        onSelect: (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          if (typeof setMenuOpen === 'function') setMenuOpen(false)
-          void watchedStore.toggle(sessionId, { title: titleOf(ctx, sessionId), locale: activeLanguage(ctx) })
-        },
-      })
-    }
+    const ICON_BELL = 'session-notify.bell'
+    const ICON_BELL_ON = 'session-notify.bell-on'
+    const ICON_DOWNLOAD = 'session-notify.download'
 
-    /** The menu's preview entry: proves the card works on this machine. */
-    function SessionNotifyPreviewItem({ ctx, sessionId, useMenuOpenState }) {
+    /**
+     * One session's notification actions: a single "会话提醒设置" row whose
+     * submenu holds the toggle and the sample card. The shared menu owns that
+     * submenu, so opening, keyboard movement, and placement are the native ones.
+     */
+    function sessionNotifyActions(ctx, target) {
       const locale = ctx.locale ?? readService(ctx, 'locale')
-      useLocaleRevision(locale)
       const t = locale.bind(NS)
-      const state = useWatchedState()
-      const useMenu = typeof useMenuOpenState === 'function' ? useMenuOpenState : () => [false, () => {}]
-      const menu = useMenu()
-      const setMenuOpen = Array.isArray(menu) ? menu[1] : () => {}
-      // The sample shows what this row's watch would look like: its title, or
-      // the stored title of an existing watch.
-      const stored = sessionId === undefined ? undefined : state.watched[sessionId]
-      const title = titleOf(ctx, sessionId) || (stored === undefined ? '' : stored.title)
-      return h(MenuRow, {
-        label: t('menu.preview'),
-        meta: '',
-        watching: false,
-        icon: h('svg', { viewBox: '0 0 16 16', 'aria-hidden': 'true' },
-          h('path', {
-            d: 'M8 3.1v6.4M5.2 6.6 8 9.4l2.8-2.8',
-            fill: 'none',
-            stroke: 'currentColor',
-            strokeWidth: 1.3,
-            strokeLinecap: 'round',
-            strokeLinejoin: 'round',
-          }),
-          h('path', {
-            d: 'M3.6 11.6v1.1h8.8v-1.1',
-            fill: 'none',
-            stroke: 'currentColor',
-            strokeWidth: 1.3,
-            strokeLinecap: 'round',
-          })),
-        onSelect: (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          if (typeof setMenuOpen === 'function') setMenuOpen(false)
-          void watchedStore.preview(title, activeLanguage(ctx), sessionId)
-        },
-      })
+      const watching = watchedStore.getSnapshot().watched[target.sessionId] !== undefined
+      const title = typeof target.displayTitle === 'string' && target.displayTitle.trim() !== ''
+        ? target.displayTitle.trim()
+        : titleOf(ctx, target.sessionId)
+      return [{
+        id: 'settings',
+        label: watching ? t('menu.groupOn') : t('menu.group'),
+        icon: { key: watching ? ICON_BELL_ON : ICON_BELL },
+        children: [
+          {
+            id: 'toggle',
+            label: watching ? t('menu.watching') : t('menu.watch'),
+            icon: { key: watching ? ICON_BELL_ON : ICON_BELL },
+            run: async () => {
+              const result = await watchedStore.toggle(target.sessionId, { title, locale: activeLanguage(ctx) })
+              const menus = readService(ctx, 'contextMenus')
+              if (result.ok) menus?.notify?.(t(result.watching ? 'toggle.on' : 'toggle.off'), true)
+              else menus?.notify?.(t('error.save'), false)
+            },
+          },
+          {
+            id: 'preview',
+            label: t('menu.preview'),
+            icon: { key: ICON_DOWNLOAD },
+            run: () => {
+              void watchedStore.preview(title, activeLanguage(ctx), target.sessionId)
+            },
+          },
+        ],
+      }]
     }
 
     /* ------------------------------------------------------------------ *
@@ -472,7 +445,7 @@ window.__ModuleLoader__.load({
      * ------------------------------------------------------------------ */
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'contextMenus'],
       apply(ctx) {
         ctx.effect(() => {
           const style = document.createElement('style')
@@ -529,8 +502,6 @@ window.__ModuleLoader__.load({
         }, 'session-notify: title sync')
 
         const Bell = (props) => h(SessionNotifyBell, Object.assign({}, props, { ctx }))
-        const WatchItem = (props) => h(SessionNotifyWatchItem, Object.assign({}, props, { ctx }))
-        const PreviewItem = (props) => h(SessionNotifyPreviewItem, Object.assign({}, props, { ctx }))
 
         ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
           name: 'sidebar.session.row.trailing',
@@ -539,19 +510,32 @@ window.__ModuleLoader__.load({
           locale: NS,
         }, Bell))
 
-        ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
-          name: 'sidebar.workspaces.session.menu.item',
-          id: 'session-notify-watch',
-          order: 106,
-          locale: NS,
-        }, WatchItem))
+        // Glyphs for the contribution's actions; the shared menu renders them
+        // by key and keeps its own sizing.
+        ctx.slots.inject('contextMenu.icon', () => ctx.slots.register({
+          name: 'contextMenu.icon',
+          key: ICON_BELL,
+        }, () => h(BellGlyph, {})))
 
-        ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
-          name: 'sidebar.workspaces.session.menu.item',
-          id: 'session-notify-preview',
-          order: 107,
-          locale: NS,
-        }, PreviewItem))
+        ctx.slots.inject('contextMenu.icon', () => ctx.slots.register({
+          name: 'contextMenu.icon',
+          key: ICON_BELL_ON,
+        }, () => h(BellGlyph, { filled: true })))
+
+        ctx.slots.inject('contextMenu.icon', () => ctx.slots.register({
+          name: 'contextMenu.icon',
+          key: ICON_DOWNLOAD,
+        }, DownloadGlyph))
+
+        // One entry instead of two: the toggle and the sample card live in its
+        // submenu, and the shared menu re-resolves whenever the watch map moves.
+        ctx.effect(() => ctx.contextMenus.register({
+          id: 'session-notify.reminders',
+          target: 'session',
+          order: 460,
+          observe: () => [watchedStore],
+          resolve: (target) => sessionNotifyActions(ctx, target),
+        }), 'session-notify: session menu')
       },
     }
   },

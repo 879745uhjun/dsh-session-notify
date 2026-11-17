@@ -2,10 +2,10 @@
 //
 // The shipped client bundle is loaded for real: its module loader call is
 // captured, the returned plugin is applied to a stub Client context, and the
-// registered slot components are driven with a minimal hook shim. `fetch` is
-// routed into the real Host plugin instead of the network, so every assertion
-// covers the Client/Host contract — the watch toggle, the row bell, and the
-// sample-card request.
+// contribution and slot components are driven directly. `fetch` is routed into
+// the real Host plugin instead of the network, so every assertion covers the
+// Client/Host contract — the session-menu submenu, the row bell, the sample
+// card, and a clicked card opening its conversation.
 //
 // This is a logic harness, not a DOM test: there is no renderer here, so
 // layout, focus, and visual appearance stay for the installed page to prove.
@@ -133,11 +133,6 @@ function button(tree) {
   return button(tree.props?.children)
 }
 
-/** The text of one element: its direct string child. */
-function textOf(element) {
-  return typeof element?.props?.children === 'string' ? element.props.children : ''
-}
-
 /* -------------------------------------------------------------------------- *
  * Real Host behind a fake fetch
  * -------------------------------------------------------------------------- */
@@ -170,7 +165,7 @@ function createResponse() {
 function createRequest(method, body) {
   const request = Readable.from(body === undefined ? [] : [Buffer.from(body, 'utf8')])
   request.method = method
-  request.headers = { host: '127.0.0.1:64133' }
+  request.headers = { host: '127.0.0.1:49823' }
   return request
 }
 
@@ -231,12 +226,12 @@ async function mountHost(t, spawned) {
 
 const SLOTS = {
   row: 'sidebar.session.row.trailing',
-  menu: 'sidebar.workspaces.session.menu.item',
+  icon: 'contextMenu.icon',
 }
 
 let imports = 0
 
-/** Build one Client context, apply the bundle, and return its slot entries. */
+/** Build one Client context, apply the bundle, and return what it registered. */
 async function mountClient() {
   const captured = {}
   globalThis.window = {
@@ -254,6 +249,8 @@ async function mountClient() {
 
   const dictionaries = new Map()
   const entries = []
+  const contributions = []
+  const notices = []
   const injected = []
   const opened = []
   const catalog = {
@@ -275,11 +272,22 @@ async function mountClient() {
     getSnapshot: () => ({ active: language.active, revision: 1 }),
     subscribe: () => () => {},
   }
+  const contextMenus = {
+    register(contribution) {
+      contributions.push(contribution)
+      return () => {}
+    },
+    notify(text, success) {
+      notices.push({ text, success })
+    },
+  }
   const ctx = {
+    contextMenus,
     effect: (factory) => factory(),
     get: (name) => {
       if (name === 'sessions') return { list: catalog }
       if (name === 'locale') return locale
+      if (name === 'contextMenus') return contextMenus
       if (name === 'uiWorkspace') return { openSession: (sessionId) => opened.push(sessionId) }
       return undefined
     },
@@ -300,17 +308,18 @@ async function mountClient() {
     if (name === 'react') return React
     throw new Error('unexpected module: ' + name)
   })
-  assert.deepEqual(plugin.inject, ['slots', 'locale'])
+  assert.deepEqual(plugin.inject, ['slots', 'locale', 'contextMenus'])
   plugin.apply(ctx)
 
   return {
     entries,
+    contributions,
     injected,
     language,
+    notices,
     opened,
     source: sources[sources.length - 1],
     bySlot: (slot) => entries.filter((entry) => entry.options.name === slot),
-    entry: (id) => entries.find((entry) => entry.options.id === id),
   }
 }
 
@@ -321,49 +330,79 @@ async function settle() {
   }
 }
 
+/** Resolve the session-menu entries for one session, as the shared menu does. */
+async function resolveMenu(client, displayTitle = '语法总纲') {
+  const contribution = client.contributions[0]
+  assert.ok(contribution, 'a session-menu contribution is registered')
+  const actions = await contribution.resolve({ sessionId: 'session-a', displayTitle }, new AbortController().signal)
+  return { contribution, actions }
+}
+
 const noEvent = { preventDefault() {}, stopPropagation() {} }
 
 /* -------------------------------------------------------------------------- *
  * Tests
  * -------------------------------------------------------------------------- */
 
-test('the bundle registers its slots, its style, its dictionaries, and the stream', async (t) => {
+test('the bundle registers its style, dictionaries, stream, bell, icons, and menu', async (t) => {
   await mountHost(t, [])
   const client = await mountClient()
   await settle()
-  assert.deepEqual(client.injected, [SLOTS.row, SLOTS.menu, SLOTS.menu])
+
+  assert.deepEqual(client.injected, [SLOTS.row, SLOTS.icon, SLOTS.icon, SLOTS.icon])
   assert.equal(client.bySlot(SLOTS.row).length, 1)
-  assert.equal(client.bySlot(SLOTS.menu).length, 2)
+  assert.deepEqual(client.bySlot(SLOTS.icon).map((entry) => entry.options.key), [
+    'session-notify.bell',
+    'session-notify.bell-on',
+    'session-notify.download',
+  ])
+  assert.equal(client.contributions.length, 1)
   assert.ok(styleElements.some((style) => style.attributes['data-plugin-css'] === 'dsh-session-notify/SessionNotify.css'))
   assert.ok(sources.some((source) => source.url === '/session-notify/events'), 'the live watch stream is opened')
 })
 
-test('the menu toggles one session on and off through the Host', async (t) => {
+test('one session-menu row carries the two original actions as a submenu', async (t) => {
+  await mountHost(t, [])
+  const client = await mountClient()
+  await settle()
+
+  const { contribution, actions } = await resolveMenu(client)
+  assert.equal(contribution.target, 'session')
+  assert.equal(contribution.order, 460)
+  assert.equal(actions.length, 1, 'one row, not two')
+
+  const parent = actions[0]
+  assert.equal(parent.id, 'settings')
+  assert.equal(parent.label, '会话提醒设置')
+  assert.deepEqual(parent.icon, { key: 'session-notify.bell' })
+  assert.equal(parent.run, undefined, 'the parent only opens its submenu')
+  assert.deepEqual(parent.children.map((child) => child.id), ['toggle', 'preview'])
+  assert.deepEqual(parent.children.map((child) => child.label), ['结束时提醒', '试弹一次提醒'])
+  assert.equal(parent.children[1].icon.key, 'session-notify.download')
+})
+
+test('the toggle child watches and unwatches through the Host', async (t) => {
   const spawned = []
   await mountHost(t, spawned)
   const client = await mountClient()
   await settle()
-  const watchItem = client.entry('session-notify-watch')
-  assert.ok(watchItem, 'the watch menu entry is registered')
 
-  let menu = true
-  const first = button(render(watchItem.component, { sessionId: 'session-a', useMenuOpenState: () => [menu, (value) => { menu = value }] }))
-  assert.equal(textOf(first.props.children[1]), '结束时提醒')
-  assert.equal(textOf(first.props.children[2]), '关')
-
-  first.props.onClick(noEvent)
+  const { actions } = await resolveMenu(client)
+  await actions[0].children[0].run()
   await settle()
-  assert.equal(menu, false, 'the menu closes when the toggle is used')
+  assert.deepEqual(client.notices.at(-1), { text: '已开启这个会话的结束提醒', success: true })
 
-  const watched = button(render(watchItem.component, { sessionId: 'session-a', useMenuOpenState: () => [false, () => {}] }))
-  assert.equal(textOf(watched.props.children[1]), '已开启结束时提醒')
-  assert.equal(textOf(watched.props.children[2]), '开')
+  const afterOn = await resolveMenu(client)
+  assert.equal(afterOn.actions[0].label, '会话提醒设置 · 开', 'the parent shows the state')
+  assert.equal(afterOn.actions[0].children[0].label, '已开启结束时提醒')
+  assert.deepEqual(afterOn.actions[0].icon, { key: 'session-notify.bell-on' })
 
-  watched.props.onClick(noEvent)
+  await afterOn.actions[0].children[0].run()
   await settle()
-  const off = button(render(watchItem.component, { sessionId: 'session-a', useMenuOpenState: () => [false, () => {}] }))
-  assert.equal(textOf(off.props.children[1]), '结束时提醒')
-  assert.equal(spawned.length, 0, 'watching a session does not draw a card by itself')
+  assert.deepEqual(client.notices.at(-1), { text: '已关闭这个会话的结束提醒', success: true })
+  const afterOff = await resolveMenu(client)
+  assert.equal(afterOff.actions[0].label, '会话提醒设置')
+  assert.equal(spawned.length, 0, 'toggling alone never draws a card')
 })
 
 test('the row bell appears only for a watched session and turns it off', async (t) => {
@@ -374,8 +413,8 @@ test('the row bell appears only for a watched session and turns it off', async (
 
   assert.equal(render(bell, { sessionId: 'session-a' }), null, 'no bell while the session is not watched')
 
-  const watchItem = client.entry('session-notify-watch').component
-  button(render(watchItem, { sessionId: 'session-a', useMenuOpenState: () => [true, () => {}] })).props.onClick(noEvent)
+  const watching = await resolveMenu(client)
+  await watching.actions[0].children[0].run()
   await settle()
 
   const buttonElement = button(render(bell, { sessionId: 'session-a' }))
@@ -388,19 +427,17 @@ test('the row bell appears only for a watched session and turns it off', async (
   assert.equal(render(bell, { sessionId: 'session-a' }), null, 'clicking the bell turns the watch off')
 })
 
-test('the sample entry asks the Host for one card with the row title', async (t) => {
+test('the preview child asks the Host for one card with the session title', async (t) => {
   const spawned = []
   const host = await mountHost(t, spawned)
   const client = await mountClient()
   await settle()
-  const preview = client.entry('session-notify-preview').component
 
-  const item = button(render(preview, { sessionId: 'session-a', useMenuOpenState: () => [false, () => {}] }))
-  assert.equal(textOf(item.props.children[1]), '试弹一次提醒')
-  assert.equal(host.routes.has('/session-notify/test'), true)
-  item.props.onClick(noEvent)
+  const { actions } = await resolveMenu(client)
+  await actions[0].children[1].run()
   await settle()
 
+  assert.equal(host.routes.has('/session-notify/test'), true)
   assert.equal(spawned.length, 1, 'the Host launched the card once')
   const value = (flag) => spawned[0].args[spawned[0].args.indexOf(flag) + 1]
   assert.equal(value('-Title'), '语法总纲')
@@ -425,16 +462,21 @@ test('a clicked card opens its conversation through the workspace', async (t) =>
   assert.deepEqual(client.opened, ['session-a'], 'a malformed frame changes nothing')
 })
 
-test('an English page keeps the Host card in English', async (t) => {
+test('an English page keeps the menu and the Host card in English', async (t) => {
   const spawned = []
   await mountHost(t, spawned)
   const client = await mountClient()
   client.language.active = 'en'
   await settle()
-  const preview = client.entry('session-notify-preview').component
-  const item = button(render(preview, { sessionId: 'session-a', useMenuOpenState: () => [false, () => {}] }))
-  assert.equal(textOf(item.props.children[1]), 'Show a sample notification')
-  item.props.onClick(noEvent)
+
+  const { actions } = await resolveMenu(client, 'English session')
+  assert.equal(actions[0].label, 'Session notifications')
+  assert.deepEqual(actions[0].children.map((child) => child.label), [
+    'Notify when this session finishes',
+    'Show a sample notification',
+  ])
+
+  await actions[0].children[1].run()
   await settle()
   const value = (flag) => spawned[0].args[spawned[0].args.indexOf(flag) + 1]
   assert.equal(value('-Body'), 'This conversation has finished')
