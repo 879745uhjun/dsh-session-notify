@@ -84,7 +84,7 @@ curl -s "http://127.0.0.1:$PORT/session-notify"
 | --- | --- |
 | 后台路由（GET /session-notify） | 200，且返回里 `watched` 是对象 |
 | 事件流（/session-notify/events） | 2 秒内收到首帧；页面没有 EventSource 时降级为「跳过」 |
-| 示例卡（/session-notify/test） | 宿主应答 `shown: true` |
+| 示例卡（/session-notify/test，**会弹一张卡**） | 宿主应答 `shown: true` |
 | 主题端点（/session-notify/theme） | 带非法值必须返回 400（只探测，不改卡片实际主题） |
 
 - **只在点「运行自检」时运行**——打开详情页不会发任何请求。

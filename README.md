@@ -104,7 +104,7 @@ carries a **自检 / Self-test** section that answers "is this plugin working ri
 | --- | --- |
 | Host routes (GET /session-notify) | 200 and the answer carries a `watched` object |
 | Event stream (/session-notify/events) | the first frame arrives within 2 s; skipped when the page has no EventSource |
-| Sample card (/session-notify/test) | the Host answers `shown: true` |
+| Sample card (/session-notify/test — **this pops one card**) | the Host answers `shown: true` |
 | Theme endpoint (/session-notify/theme) | a bad value must be refused with 400 (a probe only; the card's real theme is untouched) |
 
 - **Nothing runs until you press 运行自检** — opening the page sends no request.
