@@ -95,6 +95,24 @@ Caller notes:
 - The caller need not send a title: the browser half fills it in when a page is open.
 - Watching only adds the finish card; the menu toggle still belongs to the user.
 
+## Self-test
+
+The plugin's own detail page (**Settings → Plugins → Session finish notifications**)
+carries a **自检 / Self-test** section that answers "is this plugin working right now?"
+
+| Check | Passes when |
+| --- | --- |
+| Host routes (GET /session-notify) | 200 and the answer carries a `watched` object |
+| Event stream (/session-notify/events) | the first frame arrives within 2 s; skipped when the page has no EventSource |
+| Sample card (/session-notify/test) | the Host answers `shown: true` |
+| Theme endpoint (/session-notify/theme) | a bad value must be refused with 400 (a probe only; the card's real theme is untouched) |
+
+- **Nothing runs until you press 运行自检** — opening the page sends no request.
+- Each check has a 2 s budget (AbortController); a failure shows its reason and
+  leaves the other rows alone.
+- 弹一张示例卡 shows one card immediately; 复制结果 copies the result as Markdown
+  (`- [x] label — Pass` / `- [ ] label — Fail: reason`).
+
 ## Configuration
 
 The row in `cordis.patch.yml` carries the tunables:

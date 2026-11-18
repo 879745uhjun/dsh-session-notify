@@ -84,11 +84,23 @@ class EventSourceStub {
 }
 globalThis.EventSource = EventSourceStub
 
+/** Clipboard the self-test's copy button writes into. */
+const clipboard = []
+try {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText: async (text) => { clipboard.push(text) } } },
+    configurable: true,
+  })
+} catch {
+  globalThis.navigator.clipboard = { writeText: async (text) => { clipboard.push(text) } }
+}
+
 /* -------------------------------------------------------------------------- *
  * Hook shim: enough React for these components, no renderer
  * -------------------------------------------------------------------------- */
 
 let frame = null
+const frames = new Map()
 
 function withFrame(run) {
   const outer = frame
@@ -106,15 +118,19 @@ const React = {
     return { type, props: { ...(props ?? {}), children: list } }
   },
   useState(initial) {
-    const index = frame.index++
-    if (!(index in frame.hooks)) frame.hooks[index] = typeof initial === 'function' ? initial() : initial
-    return [frame.hooks[index], (next) => {
-      frame.hooks[index] = typeof next === 'function' ? next(frame.hooks[index]) : next
+    // Capture the owner: a state update can land after the render that created
+    // it (the section's async run does exactly that).
+    const owner = frame
+    const index = owner.index++
+    if (!(index in owner.hooks)) owner.hooks[index] = typeof initial === 'function' ? initial() : initial
+    return [owner.hooks[index], (next) => {
+      owner.hooks[index] = typeof next === 'function' ? next(owner.hooks[index]) : next
     }]
   },
   useEffect(effect) {
-    const index = frame.index++
-    frame.hooks[index] = effect()
+    const owner = frame
+    const index = owner.index++
+    owner.hooks[index] = effect()
   },
 }
 
@@ -130,8 +146,69 @@ function materialize(node) {
 }
 
 /** Render one registered slot component and return its tree. */
-function render(component, props) {
-  return materialize(withFrame(() => component(props)))
+function render(component, props, key) {
+  const outer = frame
+  let shared
+  if (key === undefined) {
+    shared = { hooks: [], index: 0 }
+  } else {
+    shared = frames.get(key) ?? { hooks: [], index: 0 }
+    frames.set(key, shared)
+    shared.index = 0
+  }
+  frame = shared
+  try {
+    // Wrapper components stay in the same frame, so a stateful component's hooks
+    // survive the manual re-render this harness does.
+    let node = component(props)
+    while (node !== null && typeof node === 'object' && typeof node.type === 'function') {
+      node = node.type(node.props)
+    }
+    return materialize(node)
+  } finally {
+    frame = outer
+  }
+}
+
+/** The first element carrying `attr` with one of the given values. */
+function byAttr(tree, attr, ...values) {
+  if (tree === null || tree === undefined || typeof tree !== 'object') return undefined
+  if (Array.isArray(tree)) {
+    for (const child of tree) {
+      const found = byAttr(child, attr, ...values)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  if (values.length === 0 ? tree.props?.[attr] !== undefined : values.includes(tree.props?.[attr])) return tree
+  return byAttr(tree.props?.children, attr, ...values)
+}
+
+/** Every element carrying `attr`. */
+function allByAttr(tree, attr) {
+  const found = []
+  const walk = (node) => {
+    if (node === null || node === undefined || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child)
+      return
+    }
+    if (node.props?.[attr] !== undefined) found.push(node)
+    walk(node.props?.children)
+  }
+  walk(tree)
+  return found
+}
+
+/** Wait until `probe` returns something truthy. */
+async function waitFor(probe, label, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const value = probe()
+    if (value) return value
+    if (Date.now() > deadline) throw new Error('timeout waiting for ' + label)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
 }
 
 /** The first `<button>` in a rendered tree. */
@@ -250,6 +327,7 @@ async function mountHost(t, spawned) {
 const SLOTS = {
   row: 'sidebar.session.row.trailing',
   icon: 'contextMenu.icon',
+  section: 'plugins.detail.section',
 }
 
 let imports = 0
@@ -343,6 +421,7 @@ async function mountClient() {
     opened,
     source: sources[sources.length - 1],
     bySlot: (slot) => entries.filter((entry) => entry.options.name === slot),
+    entry: (id) => entries.find((entry) => entry.options.id === id),
   }
 }
 
@@ -372,7 +451,7 @@ test('the bundle registers its style, dictionaries, stream, bell, icons, and men
   const client = await mountClient()
   await settle()
 
-  assert.deepEqual(client.injected, [SLOTS.row, SLOTS.icon, SLOTS.icon, SLOTS.icon])
+  assert.deepEqual(client.injected, [SLOTS.section, SLOTS.row, SLOTS.icon, SLOTS.icon, SLOTS.icon])
   assert.equal(client.bySlot(SLOTS.row).length, 1)
   assert.deepEqual(client.bySlot(SLOTS.icon).map((entry) => entry.options.key), [
     'session-notify.bell',
@@ -519,4 +598,129 @@ test('an English page keeps the menu and the Host card in English', async (t) =>
   const value = (flag) => spawned[0].args[spawned[0].args.indexOf(flag) + 1]
   assert.equal(value('-Body'), 'This conversation has finished')
   assert.equal(value('-Meta').includes('Click to open this conversation'), true)
+})
+
+/* -------------------------------------------------------------------------- *
+ * Self-test section
+ * -------------------------------------------------------------------------- */
+
+const MINE = { kind: 'bundle', pkg: { name: 'dsh-session-notify' } }
+let selfTestRuns = 0
+
+/** Render the section, press 运行自检, answer the stream, and wait until it settles. */
+async function runSelfTest(client, options = {}) {
+  const subject = options.subject ?? MINE
+  const timeoutMs = options.timeoutMs ?? 800
+  const entry = client.entry('dsh-session-notify.selftest')
+  const before = sources.length
+  // A fresh hook frame per invocation: a hung run must not leak its state into
+  // the next case.
+  selfTestRuns += 1
+  const key = 'selftest-' + selfTestRuns
+  const view = () => render(entry.component, { subject, timeoutMs }, key)
+
+  byAttr(view(), 'data-selftest-action', 'run').props.onClick()
+  if (options.answerStream !== false) {
+    const stream = await waitFor(() => (sources.length > before ? sources[sources.length - 1] : undefined), 'the self-test stream')
+    stream.listeners.get('watched')?.({ data: JSON.stringify({ ok: true, watched: {} }) })
+  }
+  const tree = await waitFor(() => {
+    const next = view()
+    const rows = allByAttr(next, 'data-check')
+    return rows.length === 4 && rows.every((row) => row.props['data-status'] !== 'run') ? next : undefined
+  }, 'the self-test to settle')
+  return {
+    tree,
+    rows: allByAttr(tree, 'data-check').map((row) => ({ id: row.props['data-check'], status: row.props['data-status'] })),
+    summary: byAttr(tree, 'data-selftest-summary').props['data-selftest-summary'],
+  }
+}
+
+test('the self-test is registered for this plugin page only', async (t) => {
+  const host = await mountHost(t, [])
+  const client = await mountClient()
+  await settle()
+
+  const entry = client.entry('dsh-session-notify.selftest')
+  assert.ok(entry, 'the section is registered')
+  assert.equal(entry.options.name, 'plugins.detail.section')
+  assert.equal(entry.options.order, 90)
+
+  assert.equal(render(entry.component, { subject: { kind: 'bundle', pkg: { name: 'dsh-session-todos' } } }), null,
+    'another plugin page stays clean')
+  assert.equal(render(entry.component, { subject: { kind: 'item', id: 'dsh-session-notify' } }), null,
+    'an official-plugin subject renders nothing')
+  assert.ok(render(entry.component, { subject: MINE }), 'its own page renders the section')
+
+  const before = host.requests.length
+  render(entry.component, { subject: MINE })
+  assert.equal(host.requests.length, before, 'rendering the section runs no check by itself')
+})
+
+test('a healthy plugin reports every check as passed', async (t) => {
+  await mountHost(t, [])
+  const client = await mountClient()
+  await settle()
+
+  const { rows, summary } = await runSelfTest(client)
+  assert.deepEqual(rows, [
+    { id: 'route', status: 'pass' },
+    { id: 'events', status: 'pass' },
+    { id: 'card', status: 'pass' },
+    { id: 'theme', status: 'pass' },
+  ])
+  assert.equal(summary, '4 通过 · 0 失败 · 0 跳过')
+})
+
+test('one broken route fails alone and the rest still pass', async (t) => {
+  await mountHost(t, [])
+  const client = await mountClient()
+  await settle()
+
+  const real = globalThis.fetch
+  globalThis.fetch = async (url, init) => (String(url).includes('/session-notify/theme')
+    ? { ok: false, status: 500, json: async () => ({}) }
+    : real(url, init))
+  t.after(() => {
+    globalThis.fetch = real
+  })
+
+  const { rows, tree } = await runSelfTest(client)
+  assert.deepEqual(rows.map((row) => row.status), ['pass', 'pass', 'pass', 'fail'])
+  const detail = allByAttr(tree, 'data-check').find((row) => row.props['data-check'] === 'theme')
+  assert.equal(detail.props['data-status'], 'fail')
+})
+
+test('a hanging request fails after the budget and the section still renders', async (t) => {
+  await mountHost(t, [])
+  const client = await mountClient()
+  await settle()
+
+  const real = globalThis.fetch
+  // Real fetch rejects on abort; the stub must too, or the budget never fires.
+  globalThis.fetch = (url, init) => new Promise((resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+  })
+  t.after(() => {
+    globalThis.fetch = real
+  })
+
+  const { rows, tree } = await runSelfTest(client, { timeoutMs: 60, answerStream: false })
+  assert.deepEqual(rows.map((row) => row.status), ['fail', 'skip', 'fail', 'fail'])
+  assert.ok(byAttr(tree, 'data-selftest-action', 'run'), 'the section is still usable')
+})
+
+test('复制结果 writes the Markdown the spec asks for', async (t) => {
+  await mountHost(t, [])
+  const client = await mountClient()
+  await settle()
+
+  const { tree } = await runSelfTest(client)
+  clipboard.length = 0
+  byAttr(tree, 'data-selftest-action', 'copy').props.onClick()
+  const [text] = await waitFor(() => (clipboard.length > 0 ? clipboard : undefined), 'the clipboard text')
+  const lines = text.split('\n')
+  assert.equal(lines.length, 4)
+  assert.match(lines[0], /^- \[x\] 后台路由（GET \/session-notify） — 通过$/)
+  assert.match(lines[3], /^- \[x\] 主题端点（\/session-notify\/theme） — 通过$/)
 })

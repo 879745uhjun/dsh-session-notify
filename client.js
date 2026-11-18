@@ -43,6 +43,35 @@ window.__ModuleLoader__.load({
       'error.preview': 'Could not show the sample notification',
       'toggle.on': 'Notifications for this session turned on',
       'toggle.off': 'Notifications for this session turned off',
+      'selftest.title': 'Self-test',
+      'selftest.run': 'Run self-test',
+      'selftest.running': 'Running…',
+      'selftest.sample': 'Show a sample card',
+      'selftest.copy': 'Copy result',
+      'selftest.copied': 'Copied to the clipboard',
+      'selftest.copyFailed': 'Copy failed — the clipboard is not available',
+      'selftest.sampleSent': 'The Host was asked for one sample card',
+      'selftest.sampleFailed': 'The sample card request failed',
+      'selftest.idle': 'Not run',
+      'selftest.pass': 'Pass',
+      'selftest.fail': 'Fail',
+      'selftest.skip': 'Skipped',
+      'selftest.summary': '{pass} passed · {fail} failed · {skip} skipped',
+      'selftest.colon': ': ',
+      'selftest.route': 'Host routes (GET /session-notify)',
+      'selftest.events': 'Event stream (/session-notify/events)',
+      'selftest.card': 'Sample card (/session-notify/test)',
+      'selftest.theme': 'Theme endpoint (/session-notify/theme)',
+      'selftest.timeout': 'no answer within the 2 s budget',
+      'selftest.noAnswer': 'the request could not be made',
+      'selftest.http': 'HTTP {status}',
+      'selftest.badList': 'the watch list is missing from the answer',
+      'selftest.watching': '{count} session(s) watched',
+      'selftest.noEventSource': 'EventSource is unavailable in this page',
+      'selftest.eventsSilent': 'the stream stayed silent (skipped)',
+      'selftest.eventsUnavailable': 'the stream did not open (skipped)',
+      'selftest.cardMissing': 'the Host answered but showed no card',
+      'selftest.themeExpected400': 'expected 400 for a bad value, got {status}',
     }
 
     const ZH = {
@@ -56,6 +85,35 @@ window.__ModuleLoader__.load({
       'error.preview': '示例提醒没有弹出',
       'toggle.on': '已开启这个会话的结束提醒',
       'toggle.off': '已关闭这个会话的结束提醒',
+      'selftest.title': '自检',
+      'selftest.run': '运行自检',
+      'selftest.running': '运行中…',
+      'selftest.sample': '弹一张示例卡',
+      'selftest.copy': '复制结果',
+      'selftest.copied': '已复制到剪贴板',
+      'selftest.copyFailed': '复制失败——当前页面拿不到剪贴板',
+      'selftest.sampleSent': '已让宿主弹出一张示例卡',
+      'selftest.sampleFailed': '示例卡请求失败',
+      'selftest.idle': '未运行',
+      'selftest.pass': '通过',
+      'selftest.fail': '失败',
+      'selftest.skip': '跳过',
+      'selftest.summary': '{pass} 通过 · {fail} 失败 · {skip} 跳过',
+      'selftest.colon': '：',
+      'selftest.route': '后台路由（GET /session-notify）',
+      'selftest.events': '事件流（/session-notify/events）',
+      'selftest.card': '示例卡（/session-notify/test）',
+      'selftest.theme': '主题端点（/session-notify/theme）',
+      'selftest.timeout': '2 秒内没有响应',
+      'selftest.noAnswer': '请求没有发出去',
+      'selftest.http': 'HTTP {status}',
+      'selftest.badList': '返回里没有 watching 列表',
+      'selftest.watching': '关注中 {count} 个会话',
+      'selftest.noEventSource': '当前页面没有 EventSource',
+      'selftest.eventsSilent': '2 秒内没有收到首帧（跳过）',
+      'selftest.eventsUnavailable': '事件流连不上（跳过）',
+      'selftest.cardMissing': '宿主应答了但没有弹卡',
+      'selftest.themeExpected400': '非法值应返回 400，实际 {status}',
     }
 
     const LOCALES = { zh: ZH, en: EN, ja: EN, es: EN, fr: EN, de: EN, ru: EN, pt: EN }
@@ -72,6 +130,28 @@ window.__ModuleLoader__.load({
       '.sn-bell:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent)}',
       '.sn-bell:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
       '.sn-bell svg{width:12px;height:12px;display:block}',
+      '.sn-st{margin-top:18px;display:flex;flex-direction:column;gap:10px}',
+      '.sn-st-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
+      '.sn-st-title{margin:0 auto 0 0;font-size:14px;line-height:20px;font-weight:600;color:var(--dsw-alias-label-primary)}',
+      '.sn-st-btn{appearance:none;box-sizing:border-box;font:inherit;font-size:12px;line-height:18px;height:28px;padding:0 12px;',
+      'border-radius:8px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;',
+      'display:inline-flex;align-items:center;gap:6px;white-space:nowrap}',
+      '.sn-st-btn:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.sn-st-btn[data-primary=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
+      '.sn-st-btn:disabled{opacity:.55;cursor:default}',
+      '.sn-st-btn:disabled:hover{background:transparent}',
+      '.sn-st-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
+      '.sn-st-sum{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}',
+      '.sn-st-list{display:flex;flex-direction:column;gap:2px}',
+      '.sn-st-row{display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-1)}',
+      '.sn-st-label{flex:1;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary)}',
+      '.sn-st-detail{margin-top:2px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}',
+      '.sn-st-badge{flex:none;font-size:11px;line-height:16px;padding:2px 8px;border-radius:999px;',
+      'border:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}',
+      '.sn-st-badge[data-status=pass]{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}',
+      '.sn-st-badge[data-status=fail]{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
+      '.sn-st-badge[data-status=run]{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}',
+      '.sn-st-badge[data-status=skip]{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}',
     ].join('\n')
 
     /* ------------------------------------------------------------------ *
@@ -469,6 +549,241 @@ window.__ModuleLoader__.load({
     }
 
     /* ------------------------------------------------------------------ *
+     * Self-test section on this plugin's detail page
+     * ------------------------------------------------------------------ */
+
+    const PACKAGE_NAME = 'dsh-session-notify'
+    const CHECK_TIMEOUT_MS = 2000
+
+    /** One request under the section's budget; never throws. */
+    async function probe(path, init, timeoutMs) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetch(path, Object.assign({}, init, { signal: controller.signal }))
+        let json
+        try {
+          json = await response.json()
+        } catch {
+          json = undefined
+        }
+        return { reached: true, status: response.status, json }
+      } catch {
+        return { reached: false, timedOut: controller.signal.aborted, status: 0 }
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    /** The four checks, each bounded by the section's budget. */
+    function selfTestChecks(t, locale, timeoutMs) {
+      const missed = (result) => (result.timedOut ? t('selftest.timeout') : t('selftest.noAnswer'))
+      return [
+        {
+          id: 'route',
+          label: t('selftest.route'),
+          run: async () => {
+            const result = await probe(ENDPOINT, { headers: { accept: 'application/json' }, cache: 'no-store' }, timeoutMs)
+            if (!result.reached) return { ok: false, detail: missed(result) }
+            if (result.status !== 200) return { ok: false, detail: t('selftest.http', { status: result.status }) }
+            const watched = result.json?.watched
+            if (result.json?.ok !== true || watched === null || typeof watched !== 'object') {
+              return { ok: false, detail: t('selftest.badList') }
+            }
+            return { ok: true, detail: t('selftest.watching', { count: Object.keys(watched).length }) }
+          },
+        },
+        {
+          id: 'events',
+          label: t('selftest.events'),
+          run: () => {
+            if (typeof EventSource !== 'function') return { skip: true, detail: t('selftest.noEventSource') }
+            return new Promise((resolve) => {
+              let done = false
+              let timer = null
+              const source = new EventSource(EVENTS)
+              const finish = (value) => {
+                if (done) return
+                done = true
+                if (timer !== null) clearTimeout(timer)
+                try {
+                  source.close()
+                } catch {
+                  /* already closed */
+                }
+                resolve(value)
+              }
+              timer = setTimeout(() => finish({ skip: true, detail: t('selftest.eventsSilent') }), timeoutMs)
+              source.addEventListener('watched', () => finish({ ok: true }))
+              source.addEventListener('error', () => finish({ skip: true, detail: t('selftest.eventsUnavailable') }))
+            })
+          },
+        },
+        {
+          id: 'card',
+          label: t('selftest.card'),
+          run: async () => {
+            const result = await probe(TEST_ENDPOINT, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ locale }),
+            }, timeoutMs)
+            if (!result.reached) return { ok: false, detail: missed(result) }
+            if (result.status !== 200) return { ok: false, detail: t('selftest.http', { status: result.status }) }
+            if (result.json?.shown !== true) return { ok: false, detail: t('selftest.cardMissing') }
+            return { ok: true }
+          },
+        },
+        {
+          id: 'theme',
+          label: t('selftest.theme'),
+          run: async () => {
+            // An invalid value must be refused; a 400 proves the route exists and
+            // validates, without touching the theme the cards actually use.
+            const result = await probe(THEME_ENDPOINT, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ theme: '__selftest__' }),
+            }, timeoutMs)
+            if (!result.reached) return { ok: false, detail: missed(result) }
+            if (result.status === 400) return { ok: true }
+            return { ok: false, detail: t('selftest.themeExpected400', { status: result.status }) }
+          },
+        },
+      ]
+    }
+
+    /** The section: a run button, the summary, the rows, and a Markdown copy. */
+    function SelfTestSection({ ctx, subject, timeoutMs }) {
+      const locale = ctx.locale ?? readService(ctx, 'locale')
+      useLocaleRevision(locale)
+      const t = locale.bind(NS)
+      const [rows, setRows] = useState([])
+      const [running, setRunning] = useState(false)
+      const [note, setNote] = useState('')
+      const budget = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : CHECK_TIMEOUT_MS
+      const language = activeLanguage(ctx) === '' ? 'zh' : activeLanguage(ctx)
+      const checks = selfTestChecks(t, language, budget)
+      const mine = subject !== null && typeof subject === 'object'
+        && (subject.kind === 'bundle' || subject.kind === 'row')
+        && subject.pkg !== null && typeof subject.pkg === 'object'
+        && subject.pkg.name === PACKAGE_NAME
+      if (!mine) return null
+
+      const counts = rows.reduce((acc, row) => {
+        if (row.status === 'pass') acc.pass += 1
+        else if (row.status === 'skip') acc.skip += 1
+        else if (row.status === 'fail') acc.fail += 1
+        return acc
+      }, { pass: 0, fail: 0, skip: 0 })
+      const summary = rows.length === 0
+        ? t('selftest.idle')
+        : t('selftest.summary', { pass: counts.pass, fail: counts.fail, skip: counts.skip })
+
+      const pending = () => checks.map((check) => ({ id: check.id, label: check.label, status: 'run', detail: '' }))
+
+      const run = async () => {
+        if (running) return
+        setRunning(true)
+        setNote('')
+        setRows(pending())
+        const settled = []
+        for (const check of checks) {
+          let outcome
+          try {
+            outcome = await check.run()
+          } catch (error) {
+            outcome = { ok: false, detail: String(error?.message ?? error) }
+          }
+          settled.push({
+            id: check.id,
+            label: check.label,
+            status: outcome.skip === true ? 'skip' : outcome.ok === true ? 'pass' : 'fail',
+            detail: typeof outcome.detail === 'string' ? outcome.detail : '',
+          })
+          setRows(settled.concat(checks.slice(settled.length).map((rest) => ({
+            id: rest.id, label: rest.label, status: 'run', detail: '',
+          }))))
+        }
+        setRows(settled)
+        setRunning(false)
+      }
+
+      const showSample = async () => {
+        const result = await probe(TEST_ENDPOINT, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ locale: language }),
+        }, budget)
+        setNote(result.reached && result.status === 200 ? t('selftest.sampleSent') : t('selftest.sampleFailed'))
+      }
+
+      const statusText = (status) => (status === 'pass' ? t('selftest.pass')
+        : status === 'fail' ? t('selftest.fail')
+          : status === 'skip' ? t('selftest.skip')
+            : status === 'run' ? t('selftest.running') : t('selftest.idle'))
+
+      const markdown = () => rows.map((row) => (row.status === 'pass'
+        ? '- [x] ' + row.label + ' — ' + t('selftest.pass')
+        : '- [ ] ' + row.label + ' — ' + statusText(row.status)
+          + (row.detail === '' ? '' : t('selftest.colon') + row.detail))).join('\n')
+
+      const copy = async () => {
+        const text = rows.length === 0 ? t('selftest.idle') : markdown()
+        try {
+          await navigator.clipboard.writeText(text)
+          setNote(t('selftest.copied'))
+        } catch {
+          setNote(t('selftest.copyFailed'))
+        }
+      }
+
+      return h('div', { className: 'sn-st', 'data-selftest': PACKAGE_NAME },
+        h('div', { className: 'sn-st-head' },
+          h('h3', { className: 'sn-st-title' }, t('selftest.title')),
+          h('button', {
+            type: 'button',
+            className: 'sn-st-btn',
+            'data-primary': 'true',
+            'data-selftest-action': 'run',
+            disabled: running,
+            onClick: () => {
+              void run()
+            },
+          }, running ? t('selftest.running') : t('selftest.run')),
+          h('button', {
+            type: 'button',
+            className: 'sn-st-btn',
+            'data-selftest-action': 'sample',
+            disabled: running,
+            onClick: () => {
+              void showSample()
+            },
+          }, t('selftest.sample')),
+          h('span', { className: 'sn-st-sum', 'data-selftest-summary': summary }, summary),
+          h('button', {
+            type: 'button',
+            className: 'sn-st-btn',
+            'data-selftest-action': 'copy',
+            disabled: rows.length === 0,
+            onClick: () => {
+              void copy()
+            },
+          }, t('selftest.copy'))),
+        note === '' ? null : h('p', { className: 'sn-st-sum', 'data-selftest-note': note }, note),
+        h('div', { className: 'sn-st-list' }, rows.map((row) => h('div', {
+          key: row.id,
+          className: 'sn-st-row',
+          'data-check': row.id,
+          'data-status': row.status,
+        },
+          h('div', { className: 'sn-st-label' },
+            h('div', null, row.label),
+            row.detail === '' || row.status === 'run' ? null : h('div', { className: 'sn-st-detail' }, row.detail)),
+          h('span', { className: 'sn-st-badge', 'data-status': row.status }, statusText(row.status))))))
+    }
+
+    /* ------------------------------------------------------------------ *
      * Plugin
      * ------------------------------------------------------------------ */
 
@@ -545,6 +860,16 @@ window.__ModuleLoader__.load({
         }, 'session-notify: title sync')
 
         const Bell = (props) => h(SessionNotifyBell, Object.assign({}, props, { ctx }))
+        const Section = (props) => h(SelfTestSection, Object.assign({}, props, { ctx }))
+
+        // The self-test lives on this plugin's own detail page and runs only when
+        // its button is pressed, so opening a page never fires requests.
+        ctx.slots.inject('plugins.detail.section', () => ctx.slots.register({
+          name: 'plugins.detail.section',
+          id: 'dsh-session-notify.selftest',
+          order: 90,
+          locale: NS,
+        }, Section))
 
         ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
           name: 'sidebar.session.row.trailing',

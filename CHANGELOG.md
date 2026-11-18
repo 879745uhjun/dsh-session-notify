@@ -14,6 +14,26 @@
 - **右下角卡片**：显示会话标题、「此对话已结束」、完成时间；点一下关闭并跳到该对话。
 - **可同时盯多个会话**：各自独立，互不影响。
 
+## 0.4.0 — 2026-11-18
+
+插件详情页新增「自检」区块（插件自检区块规范）。
+
+### 新增
+
+- 入口 `plugins.detail.section`，`id: dsh-session-notify.selftest`，`order: 90`；只在本插件的详情页渲染，
+  其他插件的详情页返回 `null`。
+- 四项检查，**只在点「运行自检」时执行**（每条 2s 预算，AbortController 计时）：
+  1. `GET /session-notify` → 200 且返回里 `watched` 是对象；
+  2. `EventSource /session-notify/events` 能在 2s 内收到首帧；页面没有 EventSource 或连不上时降级为「跳过」；
+  3. `POST /session-notify/test` → `shown: true`（示例卡）；
+  4. `POST /session-notify/theme` 带非法值 → 必须 400（只探测，不改卡片实际主题）。
+- 顶部另有「弹一张示例卡」按钮（复用 test 路由）与「复制结果」（Markdown：`- [x] 标签 — 通过` / `- [ ] 标签 — 失败：原因`）。
+- 失败不抛异常，统一转成 `{ok:false, detail}`。
+
+### 测试
+
+- 客户端由 8 项增至 13 项：注册元数据与 subject 过滤、渲染期不发请求、全绿路径、单项失败不影响其它项、2s 预算超时后区块仍可用、Markdown 形状。
+
 ## 0.3.1 — 2026-11-17
 
 卡片配色改为跟随 **DSH 主题**，不再只认 Windows 主题（深浅色适配方案规则 5）。
