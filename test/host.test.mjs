@@ -611,7 +611,7 @@ test('the mode route answers an unwatched session without watching it', async (t
   assert.equal((await call(mode, 'GET')).status, 405)
 })
 
-test('a stored watch without a mode is read as once', async (t) => {
+test('a stored watch without a mode keeps the every-turn behaviour', async (t) => {
   const home = createHome(t)
   writeFileSync(home.file, JSON.stringify({
     version: 1,
@@ -621,10 +621,39 @@ test('a stored watch without a mode is read as once', async (t) => {
   const host = createHost(home, {}, spawned)
 
   const listed = await call(host.routes.get('/session-notify'), 'GET')
-  assert.equal(listed.json.watched['legacy-session'].mode, 'once', 'old data needs no migration')
+  assert.equal(listed.json.watched['legacy-session'].mode, 'always', 'a missing mode means always')
 
   await fireTurnEnd(host, 'legacy-session')
   assert.equal(spawned.length, 1)
-  assert.deepEqual((await call(host.routes.get('/session-notify'), 'GET')).json.watched, {},
-    'the legacy watch is consumed like any once watch')
+  const after = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(after.json.watched['legacy-session'].mode, 'always', 'the legacy watch survives its card')
+
+  // The card's write-through persisted the record, so the file now names the mode.
+  const stored = JSON.parse(readFileSync(home.file, 'utf8'))
+  assert.equal(stored.watched['legacy-session'].mode, 'always', 'the next write stores the migrated mode')
+})
+
+test('a new watch still starts as once, and explicit modes are never rewritten', async (t) => {
+  const home = createHome(t)
+  writeFileSync(home.file, JSON.stringify({
+    version: 1,
+    watched: {
+      'keep-once': { title: 'A', locale: 'zh', mode: 'once', since: 1 },
+      'keep-always': { title: 'B', locale: 'zh', mode: 'always', since: 1 },
+    },
+  }), 'utf8')
+  const host = createHost(home, {}, [], { knownSessions: ['new-session'] })
+
+  const before = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(before.json.watched['keep-once'].mode, 'once')
+  assert.equal(before.json.watched['keep-always'].mode, 'always')
+
+  await call(host.routes.get('/session-notify/watch'), 'POST', { sessionId: 'new-session', on: true })
+  const after = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(after.json.watched['new-session'].mode, 'once', 'a new watch still defaults to once')
+
+  const stored = JSON.parse(readFileSync(home.file, 'utf8'))
+  assert.equal(stored.watched['keep-once'].mode, 'once', 'an explicit once is never rewritten')
+  assert.equal(stored.watched['keep-always'].mode, 'always')
+  assert.equal(stored.watched['new-session'].mode, 'once')
 })

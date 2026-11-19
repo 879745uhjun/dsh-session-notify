@@ -136,9 +136,18 @@ const MODES = ['once', 'always']
 /** What a new watch starts with when nothing says otherwise. */
 const DEFAULT_SETTINGS = { defaultWatch: false, defaultMode: 'once' }
 
-/** `'always'` or `'once'`; anything unknown is the safe once. */
+/** `'always'` or `'once'` for a value the API or the settings supplied. */
 function normalizeMode(value) {
   return value === 'always' ? 'always' : 'once'
+}
+
+/**
+ * The mode a stored record means. A record written before modes existed has no
+ * field and keeps the every-turn behaviour it was created with, so the missing
+ * field reads as `always`; the next write then stores that explicitly.
+ */
+function storedMode(value) {
+  return value === 'once' ? 'once' : 'always'
 }
 
 /** Validate one stored watch entry; a missing mode is the old `once`. */
@@ -148,7 +157,7 @@ function normalizeEntry(value) {
   return {
     title: normalizeTitle(value.title),
     locale: normalizeLocale(value.locale),
-    mode: normalizeMode(value.mode),
+    mode: storedMode(value.mode),
     since,
     lastNotifiedAt: toTimestamp(value.lastNotifiedAt),
     count: toTimestamp(value.count),

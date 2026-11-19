@@ -46,8 +46,10 @@ Each watch carries a **reminder mode**:
 
 - The row menu opens watches as `always` (the previous every-turn behaviour);
   programmatic callers get the stored default.
-- Watches stored by older versions have no `mode`; they are read as `once`, so
-  no migration is needed.
+- **Legacy watches**: a record stored before 0.5.0 has no `mode`; it reads as
+  `always`, so the every-turn behaviour it was created with survives, and the
+  next write stores `mode:'always'` explicitly. A **new** watch still starts as
+  `once`, and either can be changed from the panel or `/session-notify/mode`.
 - Either mode keeps the four-card stack limit; there is no extra queue.
 - A turn that ends with an error or a stop still notifies: the message stays
   *此对话已结束*, only the accent turns amber (stop) or red (error).
@@ -135,6 +137,8 @@ curl -s -X POST "http://127.0.0.1:$PORT/session-notify/settings" \
 - `defaultWatch` is a preference for other plugins (a merged todo panel, say); it
   never makes this plugin watch anything by itself.
 - A bad `mode` answers `400`; `/mode` on an unwatched session only answers.
+- A watch stored without `mode` reads as `always` and is written back with that
+  mode on the next persist; a new watch still starts as `once`.
 
 ## Self-test
 
