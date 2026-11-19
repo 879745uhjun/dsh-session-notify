@@ -4,7 +4,7 @@
 // routes, the durable watch file, and the finished-turn trigger. The card
 // launcher is observed through the `spawn` seam, so no window appears.
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -127,7 +127,9 @@ test('registers the watch route, the event stream, the sample route, and the ope
   assert.deepEqual([...host.routes.keys()].sort(), [
     '/session-notify',
     '/session-notify/events',
+    '/session-notify/mode',
     '/session-notify/open',
+    '/session-notify/settings',
     '/session-notify/test',
     '/session-notify/theme',
     '/session-notify/watch',
@@ -505,4 +507,124 @@ test('the theme route validates its caller and its value', async (t) => {
   assert.equal((await call(theme, 'POST', {})).status, 400)
   assert.equal((await call(theme, 'POST', { theme: 'dark' }, { origin: 'http://evil.example' })).status, 403)
   assert.equal((await call(theme, 'GET')).status, 405)
+})
+
+/* -------------------------------------------------------------------------- *
+ * Reminder mode: once / always, and the defaults other plugins read
+ * -------------------------------------------------------------------------- */
+
+/** A short pause so two triggers clear the 800 ms duplicate window. */
+const clearCooldown = () => new Promise((resolve) => setTimeout(resolve, 850))
+
+test('a new watch defaults to once and is consumed by its first card', async (t) => {
+  const home = createHome(t)
+  const spawned = []
+  const host = createHost(home, {}, spawned, { knownSessions: ['session-a'] })
+
+  await call(host.routes.get('/session-notify/watch'), 'POST', { sessionId: 'session-a', on: true })
+  const listed = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(listed.json.watched['session-a'].mode, 'once', 'the default is once')
+
+  await fireTurnEnd(host, 'session-a')
+  assert.equal(spawned.length, 1)
+
+  const after = await call(host.routes.get('/session-notify'), 'GET')
+  assert.deepEqual(after.json.watched, {}, 'once is finished by the card that shows it')
+})
+
+test('an always watch raises one card per turn until the card is clicked', async (t) => {
+  const home = createHome(t)
+  const spawned = []
+  const host = createHost(home, {}, spawned, { knownSessions: ['session-a'] })
+  const watch = host.routes.get('/session-notify/watch')
+  const mode = host.routes.get('/session-notify/mode')
+
+  await call(watch, 'POST', { sessionId: 'session-a', on: true, mode: 'always' })
+  assert.equal((await call(host.routes.get('/session-notify'), 'GET')).json.watched['session-a'].mode, 'always')
+
+  await fireTurnEnd(host, 'session-a')
+  await clearCooldown()
+  await fireTurnEnd(host, 'session-a')
+  assert.equal(spawned.length, 2, 'two turns, two cards')
+
+  const stillWatched = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(stillWatched.json.watched['session-a'].mode, 'always', 'always survives the cards')
+
+  await call(host.routes.get('/session-notify/open'), 'POST', { sessionId: 'session-a' })
+  const handled = await call(host.routes.get('/session-notify'), 'GET')
+  assert.deepEqual(handled.json.watched, {}, 'clicking the card is handling the reminder')
+  void mode
+})
+
+test('the settings route reads, writes, and refuses what it does not own', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a'] })
+  const settings = host.routes.get('/session-notify/settings')
+
+  const initial = await call(settings, 'GET')
+  assert.equal(initial.status, 200)
+  assert.deepEqual(initial.json.settings, { defaultWatch: false, defaultMode: 'once' })
+
+  const written = await call(settings, 'POST', { defaultWatch: true, defaultMode: 'always' })
+  assert.equal(written.status, 200)
+  assert.deepEqual(written.json.settings, { defaultWatch: true, defaultMode: 'always' })
+  assert.equal(written.json.defaultMode, 'always', 'the flat keys mirror the canonical contract')
+
+  const reread = await call(settings, 'GET')
+  assert.deepEqual(reread.json.settings, { defaultWatch: true, defaultMode: 'always' })
+
+  assert.equal((await call(settings, 'POST', { defaultMode: 'sometimes' })).status, 400)
+  assert.equal((await call(settings, 'POST', { defaultWatch: 'yes' })).status, 400)
+  assert.equal((await call(settings, 'POST', { defaultMode: 'once', extra: 1 })).status, 400)
+  assert.equal((await call(settings, 'POST', {})).status, 400)
+  assert.equal((await call(settings, 'POST', { defaultMode: 'once' }, { origin: 'http://evil.example' })).status, 403)
+  assert.equal((await call(settings, 'PUT')).status, 405)
+})
+
+test('a new watch picks up the stored default mode', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a'] })
+  await call(host.routes.get('/session-notify/settings'), 'POST', { defaultMode: 'always' })
+  await call(host.routes.get('/session-notify/watch'), 'POST', { sessionId: 'session-a', on: true })
+
+  const listed = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(listed.json.watched['session-a'].mode, 'always')
+})
+
+test('the mode route answers an unwatched session without watching it', async (t) => {
+  const home = createHome(t)
+  const host = createHost(home, {}, [], { knownSessions: ['session-a', 'session-b'] })
+  const mode = host.routes.get('/session-notify/mode')
+
+  const unwatched = await call(mode, 'POST', { sessionId: 'session-a', mode: 'always' })
+  assert.equal(unwatched.status, 200)
+  assert.deepEqual(unwatched.json, { ok: true, sessionId: 'session-a', watching: false, mode: null })
+  assert.deepEqual((await call(host.routes.get('/session-notify'), 'GET')).json.watched, {}, 'no implicit watch')
+
+  await call(host.routes.get('/session-notify/watch'), 'POST', { sessionId: 'session-b', on: true, mode: 'once' })
+  const changed = await call(mode, 'POST', { sessionId: 'session-b', mode: 'always' })
+  assert.deepEqual(changed.json, { ok: true, sessionId: 'session-b', watching: true, mode: 'always' })
+  assert.equal((await call(host.routes.get('/session-notify'), 'GET')).json.watched['session-b'].mode, 'always')
+
+  assert.equal((await call(mode, 'POST', { sessionId: 'session-b', mode: 'forever' })).status, 400)
+  assert.equal((await call(mode, 'POST', { sessionId: 'session-b', mode: 'always' }, { origin: 'http://evil.example' })).status, 403)
+  assert.equal((await call(mode, 'GET')).status, 405)
+})
+
+test('a stored watch without a mode is read as once', async (t) => {
+  const home = createHome(t)
+  writeFileSync(home.file, JSON.stringify({
+    version: 1,
+    watched: { 'legacy-session': { title: '旧记录', locale: 'zh', since: 1, lastNotifiedAt: 0, count: 2 } },
+  }), 'utf8')
+  const spawned = []
+  const host = createHost(home, {}, spawned)
+
+  const listed = await call(host.routes.get('/session-notify'), 'GET')
+  assert.equal(listed.json.watched['legacy-session'].mode, 'once', 'old data needs no migration')
+
+  await fireTurnEnd(host, 'legacy-session')
+  assert.equal(spawned.length, 1)
+  assert.deepEqual((await call(host.routes.get('/session-notify'), 'GET')).json.watched, {},
+    'the legacy watch is consumed like any once watch')
 })

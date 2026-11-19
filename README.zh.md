@@ -25,8 +25,19 @@
 ## 什么时候弹
 
 Host 只监听被盯会话日志里**已经提交**的 `turn/end` 事件，所以卡片绝不会在流式输出中途冒出来：
-它等到这一轮的输出结束、落盘之后才弹。关注期间每一轮结束都会弹一次，包括出错或被中断的那一轮
-——提示语始终是「此对话已结束」，只是左侧强调色会变成琥珀色（中断）或红色（出错）。
+它等到这一轮的输出结束、落盘之后才弹。
+
+每个关注带一个**提醒方式** `mode`：
+
+| 方式 | 行为 |
+| --- | --- |
+| `once`（默认） | 这个关注只提醒一次：第一张卡弹出后关注自动解除（会话行的小铃铛消失）。 |
+| `always` | 同一会话每完成一轮就弹一张，直到**已处理**：处理 = 「点击卡片打开该会话」或「右键菜单关闭提醒」。 |
+
+- 右键菜单里开启的提醒用 `always`（保持“每轮都提醒”的老行为）；程序化调用不传 `mode` 时套用默认值。
+- 老版本存的关注没有 `mode` 字段，一律按 `once` 读，不需要迁移。
+- 不管哪种方式，卡片堆叠仍是 4 张上限，不另排队。
+- 这一轮出错或被中断也会提醒：提示语始终是「此对话已结束」，只改左侧强调色（琥珀=中断、红=出错）。
 
 ## 卡片本身
 
@@ -75,6 +86,31 @@ curl -s "http://127.0.0.1:$PORT/session-notify"
 - 端口用 DSH 的 Web 地址（桌面版每次启动可能变化），同源请求不需要额外鉴权。
 - 不用自己传会话标题：页面打开时浏览器半会自动回填（`restate`）。
 - 关注只影响「结束时弹卡」；卡片外观、菜单开关都不变，用户仍可在菜单里自己关掉。
+
+### 提醒方式与默认值
+
+```bash
+# 改某个已关注会话的方式（未关注不会隐式建立关注）
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/mode" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"session-xxxx","mode":"always"}'
+# 已关注 → {"ok":true,"sessionId":"…","watching":true,"mode":"always"}
+# 未关注 → {"ok":true,"sessionId":"…","watching":false,"mode":null}
+
+# 读 / 写默认值
+curl -s "http://127.0.0.1:$PORT/session-notify/settings"
+# → {"ok":true,"settings":{"defaultWatch":false,"defaultMode":"once"},"defaultWatch":false,"defaultMode":"once"}
+
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/settings" \
+  -H 'content-type: application/json' \
+  -d '{"defaultWatch":true,"defaultMode":"always"}'
+```
+
+- `POST /session-notify/settings` **只接受**这两个键：未知键、类型不对、空对象都是 `400`；跨源 `403`；非 `GET/POST` `405`。
+- 新建 watch 时（`POST /session-notify/watch` 不带 `mode`）套用 `defaultMode`。
+- `POST /session-notify/watch` 也接受可选 `mode`，调用方想指定就直接传。
+- `defaultWatch` 是给其它插件（例如待办合并面板）的偏好，**不会**让本插件自动关注任何会话。
+- `mode` 非法值 → `400`；对未关注的会话调 `/mode` 只回答、不建关注。
 
 ## 自检
 

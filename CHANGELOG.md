@@ -14,6 +14,26 @@
 - **右下角卡片**：显示会话标题、「此对话已结束」、完成时间；点一下关闭并跳到该对话。
 - **可同时盯多个会话**：各自独立，互不影响。
 
+## 0.5.0 — 2026-11-19
+
+关注记录新增**提醒方式** `once` / `always`，并对外暴露默认值与切换接口（待办合并面板的前置）。
+
+### 新增
+
+- watch 记录新增 `mode: 'once' | 'always'`，缺省 `once`；老数据不迁移，缺字段按 `once` 读。
+- `GET/POST /session-notify/settings`：`{ defaultWatch, defaultMode }`；POST 只接受这两个键，
+  未知键/类型错/空对象 `400`，跨源 `403`，其它方法 `405`；新建 watch 套用 `defaultMode`。
+- `POST /session-notify/mode { sessionId, mode }`：已关注 → `{ok:true,watching:true,mode}`；
+  未关注 → `{ok:true,watching:false,mode:null}` 且**不隐式建关注**；非法 `mode` `400`。
+- `POST /session-notify/watch` 接受可选 `mode`；`GET /session-notify` 的每条 watch 都带 `mode`。
+
+### 行为
+
+- `once`：第一张卡弹出即结束该关注（铃铛随之消失）。
+- `always`：每轮 `turn/end` 各弹一张，直到已处理——**点击卡片打开会话**或**右键菜单关闭提醒**即视为已处理。
+- 右键菜单开启的提醒显式使用 `always`（保持“每轮都提醒”的旧行为）。
+- 卡片堆叠沿用 4 张上限，不另造队列。
+
 ## 0.4.1 — 2026-11-18
 
 ### 修复

@@ -41,6 +41,10 @@ const OPEN_ROUTE = '/session-notify/open'
 const WATCH_ROUTE = '/session-notify/watch'
 /** Route the page uses to report the DSH theme the card must match. */
 const THEME_ROUTE = '/session-notify/theme'
+/** Route that reads and writes the defaults a new watch starts with. */
+const SETTINGS_ROUTE = '/session-notify/settings'
+/** Route that changes one existing watch's reminder mode. */
+const MODE_ROUTE = '/session-notify/mode'
 /** SSE heartbeat interval; keeps idle proxies and sockets alive. */
 const SSE_HEARTBEAT_MS = 20_000
 /** Watch-file format version. */
@@ -127,13 +131,24 @@ function toTimestamp(value) {
   return Math.floor(number)
 }
 
-/** Validate one stored watch entry. */
+/** Reminder modes: one card per watch, or one per finished turn until handled. */
+const MODES = ['once', 'always']
+/** What a new watch starts with when nothing says otherwise. */
+const DEFAULT_SETTINGS = { defaultWatch: false, defaultMode: 'once' }
+
+/** `'always'` or `'once'`; anything unknown is the safe once. */
+function normalizeMode(value) {
+  return value === 'always' ? 'always' : 'once'
+}
+
+/** Validate one stored watch entry; a missing mode is the old `once`. */
 function normalizeEntry(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   const since = toTimestamp(value.since)
   return {
     title: normalizeTitle(value.title),
     locale: normalizeLocale(value.locale),
+    mode: normalizeMode(value.mode),
     since,
     lastNotifiedAt: toTimestamp(value.lastNotifiedAt),
     count: toTimestamp(value.count),
@@ -153,6 +168,15 @@ function normalizeWatched(raw) {
   return watched
 }
 
+/** Copy and validate the stored defaults. */
+function normalizeSettings(raw) {
+  const settings = { ...DEFAULT_SETTINGS }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return settings
+  settings.defaultWatch = raw.defaultWatch === true
+  settings.defaultMode = normalizeMode(raw.defaultMode)
+  return settings
+}
+
 /** A frozen, caller-owned copy of the watch map. */
 function snapshotWatched(watched) {
   const copy = {}
@@ -160,6 +184,7 @@ function snapshotWatched(watched) {
     copy[sessionId] = {
       title: value.title,
       locale: value.locale,
+      mode: value.mode,
       since: value.since,
       lastNotifiedAt: value.lastNotifiedAt,
       count: value.count,
@@ -227,6 +252,7 @@ function readSessionId(payload) {
  */
 function createStore(file, log) {
   let watched = {}
+  let settings = { ...DEFAULT_SETTINGS }
   let loaded = null
   let writeChain = Promise.resolve()
   const listeners = new Set()
@@ -249,6 +275,7 @@ function createStore(file, log) {
         const text = await readFile(file, 'utf8')
         const parsed = JSON.parse(text)
         watched = normalizeWatched(parsed?.watched)
+        settings = normalizeSettings(parsed?.settings)
       } catch (error) {
         if (error?.code !== 'ENOENT') log('could not read ' + file, error)
       }
@@ -257,7 +284,7 @@ function createStore(file, log) {
   }
 
   function persist() {
-    const body = JSON.stringify({ version: FILE_VERSION, updatedAt: Date.now(), watched }, null, 2)
+    const body = JSON.stringify({ version: FILE_VERSION, updatedAt: Date.now(), watched, settings }, null, 2)
     writeChain = writeChain
       .then(async () => {
         await mkdir(dirname(file), { recursive: true })
@@ -287,16 +314,57 @@ function createStore(file, log) {
       await load()
       const title = normalizeTitle(patch.title)
       const locale = normalizeLocale(patch.locale)
+      const requested = patch.mode === undefined ? undefined : normalizeMode(patch.mode)
       const previous = watched[sessionId]
       if (previous === undefined) {
-        watched[sessionId] = { title, locale, since: Date.now(), lastNotifiedAt: 0, count: 0 }
+        watched[sessionId] = {
+          title,
+          locale,
+          mode: requested ?? settings.defaultMode,
+          since: Date.now(),
+          lastNotifiedAt: 0,
+          count: 0,
+        }
         await persist()
         emit({ kind: 'watch', sessionId })
         return snapshotWatched(watched)
       }
       if (title !== '' && title !== previous.title) previous.title = title
       if (locale !== '' && locale !== previous.locale) previous.locale = locale
+      if (requested !== undefined && requested !== previous.mode) {
+        previous.mode = requested
+        await persist()
+        emit({ kind: 'mode', sessionId, mode: previous.mode })
+      }
       return snapshotWatched(watched)
+    },
+    /** The defaults new watches start with. */
+    settings: () => ({ ...settings }),
+    /** Replace the defaults; only the two known keys move. */
+    async updateSettings(patch) {
+      await load()
+      const next = { ...settings }
+      if (patch.defaultWatch !== undefined) next.defaultWatch = patch.defaultWatch === true
+      if (patch.defaultMode !== undefined) next.defaultMode = normalizeMode(patch.defaultMode)
+      if (next.defaultWatch === settings.defaultWatch && next.defaultMode === settings.defaultMode) {
+        return { ...settings }
+      }
+      settings = next
+      await persist()
+      return { ...settings }
+    },
+    /** Change one existing watch's mode; null when that session is not watched. */
+    async setMode(sessionId, mode) {
+      await load()
+      const entry = watched[sessionId]
+      if (entry === undefined) return null
+      const next = normalizeMode(mode)
+      if (entry.mode !== next) {
+        entry.mode = next
+        await persist()
+        emit({ kind: 'mode', sessionId, mode: next })
+      }
+      return entry.mode
     },
     /** Remove one watch. */
     async unwatch(sessionId) {
@@ -558,7 +626,11 @@ function createRouteHandler(store, log) {
         }
         const action = payload?.action ?? 'watch'
         if (action === 'watch') {
-          const watched = await store.watch(session.sessionId, { title: payload?.title, locale: payload?.locale })
+          const watched = await store.watch(session.sessionId, {
+            title: payload?.title,
+            locale: payload?.locale,
+            mode: payload?.mode,
+          })
           sendJson(response, 200, { ok: true, watched, watching: watched[session.sessionId] !== undefined })
           return
         }
@@ -585,10 +657,12 @@ function createRouteHandler(store, log) {
 
 /**
  * The card's click route: the clicked card posts the session it stands for, and
- * every open window is told to open it. Unauthenticated but same-origin-checked
- * like the rest of this plugin, and reachable only from this machine.
+ * every open window is told to open it. Clicking the card *is* handling the
+ * reminder, so the watch it belongs to is retired here in both modes.
+ * Unauthenticated but same-origin-checked like the rest of this plugin, and
+ * reachable only from this machine.
  */
-function createOpenHandler(events, log) {
+function createOpenHandler(events, store, log) {
   return async function handleSessionNotifyOpen(request, response) {
     try {
       if (!isAcceptableOrigin(request)) {
@@ -613,6 +687,7 @@ function createOpenHandler(events, log) {
         return
       }
       const delivered = events.navigate(session.sessionId)
+      await store.unwatch(session.sessionId)
       sendJson(response, 200, { ok: true, sessionId: session.sessionId, delivered })
     } catch (error) {
       log('could not open a conversation from a card', error)
@@ -708,11 +783,17 @@ function createWatchHandler(store, log, isKnownSession) {
         sendJson(response, 400, { ok: false, error: 'on must be a boolean' })
         return
       }
+      // Optional on purpose: a caller may name the mode it wants, otherwise the
+      // stored default decides, so the earlier two-field contract still holds.
+      if (payload.mode !== undefined && !MODES.includes(payload.mode)) {
+        sendJson(response, 400, { ok: false, error: 'mode must be one of ' + MODES.join(', ') })
+        return
+      }
       if (!isKnownSession(session.sessionId)) {
         sendJson(response, 200, { ok: true, sessionId: session.sessionId, watching: false, reason: 'unknown-session' })
         return
       }
-      if (payload.on) await store.watch(session.sessionId, {})
+      if (payload.on) await store.watch(session.sessionId, { mode: payload.mode })
       else await store.unwatch(session.sessionId)
       const watching = store.entryOf(session.sessionId) !== undefined
       sendJson(response, 200, { ok: true, sessionId: session.sessionId, watching })
@@ -727,12 +808,136 @@ function createWatchHandler(store, log, isKnownSession) {
   }
 }
 
+/** One settings answer; the flat keys are the canonical contract. */
+function settingsPayload(settings) {
+  return {
+    ok: true,
+    settings: { defaultWatch: settings.defaultWatch, defaultMode: settings.defaultMode },
+    defaultWatch: settings.defaultWatch,
+    defaultMode: settings.defaultMode,
+  }
+}
+
+/**
+ * The defaults other plugins read and write: what a watch starts as, whether a
+ * merged panel should watch by itself, and which mode that watch gets.
+ */
+function createSettingsHandler(store, log) {
+  return async function handleSessionNotifySettings(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method === 'GET') {
+        await store.load()
+        sendJson(response, 200, settingsPayload(store.settings()))
+        return
+      }
+      if (request.method !== 'POST') {
+        response.writeHead(405, { allow: 'GET, POST', 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false, error: 'method not allowed' }))
+        return
+      }
+      let payload
+      try {
+        payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message === 'request body is too large' ? error.message : 'invalid JSON body' })
+        return
+      }
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+        sendJson(response, 400, { ok: false, error: 'body must be a JSON object' })
+        return
+      }
+      const keys = Object.keys(payload)
+      const unknown = keys.find((key) => key !== 'defaultWatch' && key !== 'defaultMode')
+      if (unknown !== undefined) {
+        sendJson(response, 400, { ok: false, error: 'unknown key "' + unknown + '"' })
+        return
+      }
+      if (keys.length === 0) {
+        sendJson(response, 400, { ok: false, error: 'nothing to change' })
+        return
+      }
+      if (payload.defaultWatch !== undefined && typeof payload.defaultWatch !== 'boolean') {
+        sendJson(response, 400, { ok: false, error: 'defaultWatch must be a boolean' })
+        return
+      }
+      if (payload.defaultMode !== undefined && !MODES.includes(payload.defaultMode)) {
+        sendJson(response, 400, { ok: false, error: 'defaultMode must be one of ' + MODES.join(', ') })
+        return
+      }
+      const settings = await store.updateSettings({
+        defaultWatch: payload.defaultWatch,
+        defaultMode: payload.defaultMode,
+      })
+      sendJson(response, 200, settingsPayload(settings))
+    } catch (error) {
+      log('could not change the watch defaults', error)
+      try {
+        sendJson(response, 500, { ok: false, error: 'internal error' })
+      } catch {
+        response.destroy()
+      }
+    }
+  }
+}
+
+/**
+ * Change one existing watch's mode. An unwatched session is answered, never
+ * watched implicitly: the caller decides whether it wants a watch at all.
+ */
+function createModeHandler(store, log) {
+  return async function handleSessionNotifyMode(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        response.writeHead(405, { allow: 'POST', 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false, error: 'method not allowed' }))
+        return
+      }
+      let payload
+      try {
+        payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message === 'request body is too large' ? error.message : 'invalid JSON body' })
+        return
+      }
+      const session = readSessionId(payload)
+      if (!session.ok) {
+        sendJson(response, 400, { ok: false, error: session.error })
+        return
+      }
+      if (!MODES.includes(payload?.mode)) {
+        sendJson(response, 400, { ok: false, error: 'mode must be one of ' + MODES.join(', ') })
+        return
+      }
+      const mode = await store.setMode(session.sessionId, payload.mode)
+      if (mode === null) {
+        sendJson(response, 200, { ok: true, sessionId: session.sessionId, watching: false, mode: null })
+        return
+      }
+      sendJson(response, 200, { ok: true, sessionId: session.sessionId, watching: true, mode })
+    } catch (error) {
+      log('could not change a watch mode', error)
+      try {
+        sendJson(response, 500, { ok: false, error: 'internal error' })
+      } catch {
+        response.destroy()
+      }
+    }
+  }
+}
+
 /**
  * The web origin the card posts back to, or '' when this composition serves no
  * page. Read at card time so a changed port is picked up.
  */
-function openBaseUrl(ctx) {
-  try {
+function openBaseUrl(ctx) {  try {
     const webApp = ctx.get('webApp')
     const url = typeof webApp?.getAdvertisedUrl === 'function' ? webApp.getAdvertisedUrl() : undefined
     if (typeof url === 'string' && url.length > 0) return url.replace(/\/+$/, '')
@@ -864,6 +1069,9 @@ export function apply(ctx, config, seams = {}) {
         sessionId,
         theme: resolveTheme(),
       })
+      // `once` means one card per watch: showing it is the end of that watch.
+      // `always` keeps the watch until the person handles it (open or turn off).
+      if (entry.mode !== 'always') await store.unwatch(sessionId)
     } catch (error) {
       log('could not notify a finished turn', error)
     }
@@ -876,10 +1084,14 @@ export function apply(ctx, config, seams = {}) {
       const removeWatches = scope.webServer.register({ kind: 'exact', path: ROUTE, handler: createRouteHandler(store, log) })
       const removeEvents = scope.webServer.register({ kind: 'exact', path: EVENTS_ROUTE, handler: events.attach })
       const removeTest = scope.webServer.register({ kind: 'exact', path: TEST_ROUTE, handler: createTestHandler(options, cards, log, resolveOpenUrl, resolveTheme) })
-      const removeOpen = scope.webServer.register({ kind: 'exact', path: OPEN_ROUTE, handler: createOpenHandler(events, log) })
+      const removeOpen = scope.webServer.register({ kind: 'exact', path: OPEN_ROUTE, handler: createOpenHandler(events, store, log) })
       const removeWatch = scope.webServer.register({ kind: 'exact', path: WATCH_ROUTE, handler: createWatchHandler(store, log, isKnownSession) })
       const removeTheme = scope.webServer.register({ kind: 'exact', path: THEME_ROUTE, handler: createThemeHandler((theme) => { webTheme = theme }, log) })
+      const removeSettings = scope.webServer.register({ kind: 'exact', path: SETTINGS_ROUTE, handler: createSettingsHandler(store, log) })
+      const removeMode = scope.webServer.register({ kind: 'exact', path: MODE_ROUTE, handler: createModeHandler(store, log) })
       return () => {
+        removeMode()
+        removeSettings()
         removeTheme()
         removeWatch()
         removeOpen()

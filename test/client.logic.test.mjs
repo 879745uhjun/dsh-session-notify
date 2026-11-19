@@ -485,13 +485,15 @@ test('one session-menu row carries the two original actions as a submenu', async
 
 test('the toggle child watches and unwatches through the Host', async (t) => {
   const spawned = []
-  await mountHost(t, spawned)
+  const host = await mountHost(t, spawned)
   const client = await mountClient()
   await settle()
 
   const { actions } = await resolveMenu(client)
   await actions[0].children[0].run()
   await settle()
+  const asked = host.requests.filter((entry) => entry.path === '/session-notify').at(-1)
+  assert.equal(asked.body.mode, 'always', 'the menu asks for a card on every turn')
   assert.deepEqual(client.notices.at(-1), { text: '已开启这个会话的结束提醒', success: true })
 
   const afterOn = await resolveMenu(client)

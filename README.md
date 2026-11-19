@@ -35,9 +35,22 @@ and cards stack upwards instead of covering each other.
 
 The Host listens for the durable `turn/end` event of a watched session's log and
 nothing else, so the card never appears mid-stream: it waits until that turn's
-output is complete and committed. This fires for every turn while the watch is
-on, including a turn that ends with an error or a stop — the accent turns amber
-for a stop and red for an error, while the message stays *此对话已结束*.
+output is complete and committed.
+
+Each watch carries a **reminder mode**:
+
+| Mode | Behaviour |
+| --- | --- |
+| `once` (default) | the watch reminds once: the first card finishes the watch and the row bell disappears |
+| `always` | one card per finished turn until the reminder is **handled** — handled means either *clicking a card to open that conversation* or *turning the watch off from the row menu* |
+
+- The row menu opens watches as `always` (the previous every-turn behaviour);
+  programmatic callers get the stored default.
+- Watches stored by older versions have no `mode`; they are read as `once`, so
+  no migration is needed.
+- Either mode keeps the four-card stack limit; there is no extra queue.
+- A turn that ends with an error or a stop still notifies: the message stays
+  *此对话已结束*, only the accent turns amber (stop) or red (error).
 
 ## The card
 
@@ -94,6 +107,34 @@ Caller notes:
 - `$PORT` is DSH's web address and can change on every desktop launch.
 - The caller need not send a title: the browser half fills it in when a page is open.
 - Watching only adds the finish card; the menu toggle still belongs to the user.
+
+### Reminder mode and defaults
+
+```bash
+# change one watched session's mode (an unwatched session is never watched implicitly)
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/mode" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"session-xxxx","mode":"always"}'
+# watched   → {"ok":true,"sessionId":"…","watching":true,"mode":"always"}
+# unwatched → {"ok":true,"sessionId":"…","watching":false,"mode":null}
+
+# read / write the defaults
+curl -s "http://127.0.0.1:$PORT/session-notify/settings"
+# → {"ok":true,"settings":{"defaultWatch":false,"defaultMode":"once"},"defaultWatch":false,"defaultMode":"once"}
+
+curl -s -X POST "http://127.0.0.1:$PORT/session-notify/settings" \
+  -H 'content-type: application/json' \
+  -d '{"defaultWatch":true,"defaultMode":"always"}'
+```
+
+- `POST /session-notify/settings` accepts **only** those two keys: an unknown key,
+  a wrong type, or an empty object answers `400`; a cross-origin caller gets `403`;
+  any method other than `GET`/`POST` gets `405`.
+- A new watch (`POST /session-notify/watch` without `mode`) takes `defaultMode`.
+- `POST /session-notify/watch` also accepts an optional `mode`.
+- `defaultWatch` is a preference for other plugins (a merged todo panel, say); it
+  never makes this plugin watch anything by itself.
+- A bad `mode` answers `400`; `/mode` on an unwatched session only answers.
 
 ## Self-test
 

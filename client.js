@@ -190,6 +190,7 @@ window.__ModuleLoader__.load({
         watched[sessionId] = {
           title: typeof value.title === 'string' ? value.title : '',
           locale: typeof value.locale === 'string' ? value.locale : '',
+          mode: value.mode === 'always' ? 'always' : 'once',
           since: Number(value.since) || 0,
           lastNotifiedAt: Number(value.lastNotifiedAt) || 0,
           count: Number(value.count) || 0,
@@ -327,6 +328,9 @@ window.__ModuleLoader__.load({
               sessionId,
               title,
               locale,
+              // The menu promises a card for every finished turn, so it asks for
+              // `always`; programmatic callers get the stored default instead.
+              mode: 'always',
             })
             return { ok: true, watching: !watching }
           } catch (error) {
