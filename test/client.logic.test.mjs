@@ -650,9 +650,13 @@ test('the self-test is registered for this plugin page only', async (t) => {
 
   assert.equal(render(entry.component, { subject: { kind: 'bundle', pkg: { name: 'dsh-session-todos' } } }), null,
     'another plugin page stays clean')
-  assert.equal(render(entry.component, { subject: { kind: 'item', id: 'dsh-session-notify' } }), null,
-    'an official-plugin subject renders nothing')
-  assert.ok(render(entry.component, { subject: MINE }), 'its own page renders the section')
+  assert.ok(render(entry.component, { subject: { kind: 'item', id: 'dsh-session-notify' } }),
+    'the bare id of this plugin renders the section')
+  assert.ok(render(entry.component, { subject: { kind: 'item', id: 'include:dsh-session-notify' } }),
+    'the loader-qualified id renders too')
+  assert.equal(render(entry.component, { subject: { kind: 'item', id: 'include:dsh-session-todos' } }), null,
+    'a loader-qualified id of another plugin stays clean')
+  assert.ok(render(entry.component, { subject: MINE }), 'its own bundle page renders the section')
 
   const before = host.requests.length
   render(entry.component, { subject: MINE })

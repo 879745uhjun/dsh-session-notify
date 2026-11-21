@@ -657,6 +657,19 @@ window.__ModuleLoader__.load({
       ]
     }
 
+    /**
+     * The package a detail page is about. The page hands one of two shapes: a
+     * bundle/row carries `pkg.name`, while an official entry carries a bare
+     * `id` — and that id arrives either bare or loader-qualified.
+     */
+    function subjectPluginName(subject) {
+      if (subject !== null && typeof subject === 'object' && subject.kind === 'bundle') return subject?.pkg?.name
+      if (subject !== null && typeof subject === 'object' && subject.kind === 'item' && typeof subject.id === 'string') {
+        return subject.id === PACKAGE_NAME || subject.id === 'include:' + PACKAGE_NAME ? PACKAGE_NAME : undefined
+      }
+      return undefined
+    }
+
     /** The section: a run button, the summary, the rows, and a Markdown copy. */
     function SelfTestSection({ ctx, subject, timeoutMs }) {
       const locale = ctx.locale ?? readService(ctx, 'locale')
@@ -668,11 +681,7 @@ window.__ModuleLoader__.load({
       const budget = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : CHECK_TIMEOUT_MS
       const language = activeLanguage(ctx) === '' ? 'zh' : activeLanguage(ctx)
       const checks = selfTestChecks(t, language, budget)
-      const mine = subject !== null && typeof subject === 'object'
-        && (subject.kind === 'bundle' || subject.kind === 'row')
-        && subject.pkg !== null && typeof subject.pkg === 'object'
-        && subject.pkg.name === PACKAGE_NAME
-      if (!mine) return null
+      if (subjectPluginName(subject) !== PACKAGE_NAME) return null
 
       const counts = rows.reduce((acc, row) => {
         if (row.status === 'pass') acc.pass += 1

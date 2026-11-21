@@ -14,6 +14,19 @@
 - **右下角卡片**：显示会话标题、「此对话已结束」、完成时间；点一下关闭并跳到该对话。
 - **可同时盯多个会话**：各自独立，互不影响。
 
+## 0.5.2 — 2026-11-21
+
+### 修复
+
+- 自检区块的 subject 判定改为**双形态**：`{kind:'bundle', pkg:{name}}`，以及在 rc.5 里真实出现的
+  `{kind:'item', id}`（`id` 可能是裸包名 `dsh-session-notify`，也可能是加载器前缀形态
+  `include:dsh-session-notify`）。此前只认 bundle 形态，item 形态下详情页不会渲染自检区块。
+  其它插件的 item 仍返回 `null`，不会串台。
+
+### 测试
+
+- 新增断言：裸 `id` 与 `include:dsh-session-notify` 都渲染；`include:dsh-session-todos` 不渲染。
+
 ## 0.5.1 — 2026-11-19
 
 ### 修复
